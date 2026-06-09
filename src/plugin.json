@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "app",
+  "name": "PDF Reporter",
+  "id": "vincentgourbin-pdfreporter-app",
+  "info": {
+    "description": "Export Grafana dashboards to PDF with cover page.",
+    "author": {
+      "name": "Vincent Gourbin",
+      "url": "https://github.com/VincentGourbin"
+    },
+    "keywords": ["pdf", "report", "export", "dashboard"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=11.0.0",
+    "plugins": []
+  },
+  "includes": [],
+  "extensions": {
+    "addedLinks": [
+      {
+        "title": "Export PDF",
+        "description": "Generate a PDF report of this dashboard",
+        "targets": ["grafana/dashboard/action"]
+      }
+    ]
+  },
+  "backend": true,
+  "executable": "gpx_pdfreporter"
+}
