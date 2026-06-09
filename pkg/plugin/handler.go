@@ -35,8 +35,20 @@ func (a *App) handleGenerate(rw http.ResponseWriter, req *http.Request) {
 	a.logger.Info("generate request",
 		"uid", uid, "from", from, "to", to, "theme", theme, "user", user)
 
+	// Étape 0 : lire la config (Plugin Settings → JSONData + SecureJSONData)
+	settings, err := settingsFromContext(req.Context())
+	if err != nil {
+		a.logger.Error("settings read failed", "err", err.Error())
+		http.Error(rw, fmt.Sprintf("settings: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if settings.GrafanaSAToken == "" || settings.RendererAuthTok == "" {
+		http.Error(rw, "plugin not fully configured (need grafanaSAToken + rendererAuthToken in plugin settings)", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Étape 1 : récupérer le titre du dashboard (et plus tard ses dimensions).
-	title, err := fetchDashboardTitle(req.Context(), uid)
+	title, err := fetchDashboardTitle(req.Context(), settings, uid)
 	if err != nil {
 		a.logger.Error("fetch dashboard meta failed", "err", err.Error())
 		http.Error(rw, fmt.Sprintf("grafana meta: %v", err), http.StatusBadGateway)
@@ -45,7 +57,7 @@ func (a *App) handleGenerate(rw http.ResponseWriter, req *http.Request) {
 
 	// Étape 2 : render PNG via image-renderer (en passant par Grafana /render/d).
 	t0 := time.Now()
-	pngBytes, err := renderDashboardPNG(req.Context(), uid, from, to, theme)
+	pngBytes, err := renderDashboardPNG(req.Context(), settings, uid, from, to, theme)
 	if err != nil {
 		a.logger.Error("render failed", "err", err.Error())
 		http.Error(rw, fmt.Sprintf("render: %v", err), http.StatusBadGateway)
