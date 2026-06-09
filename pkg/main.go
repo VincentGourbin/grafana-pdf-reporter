@@ -4,7 +4,6 @@ package main
 import (
 	"os"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/app"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 
@@ -20,6 +19,4 @@ func main() {
 		log.DefaultLogger.Error("plugin manage failed", "error", err.Error())
 		os.Exit(1)
 	}
-	// Garder la dépendance backend pour signaler à l'utilisateur l'interface attendue.
-	var _ backend.AppHandler = (*plugin.App)(nil)
 }
