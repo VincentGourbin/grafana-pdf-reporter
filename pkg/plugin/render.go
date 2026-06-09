@@ -8,21 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
 
-// Config par env vars — injectable depuis Grafana plugin config plus tard.
-var (
-	grafanaURL       = getenv("GF_PDFREPORTER_GRAFANA_URL", "https://127.0.0.1:3000")
-	grafanaSAToken   = getenv("GF_PDFREPORTER_SA_TOKEN", "")
-	imageRendererURL = getenv("GF_PDFREPORTER_IMAGE_RENDERER_URL", "http://127.0.0.1:8181")
-	rendererAuthTok  = getenv("GF_PDFREPORTER_RENDERER_AUTH_TOKEN", "")
-	viewportWidth    = getenvInt("GF_PDFREPORTER_VIEWPORT_WIDTH", 1280)
-	viewportHeight   = getenvInt("GF_PDFREPORTER_VIEWPORT_HEIGHT", 3000)
-	renderTimeout    = time.Duration(getenvInt("GF_PDFREPORTER_RENDER_TIMEOUT_SEC", 60)) * time.Second
-)
+// La config (tokens, URLs) est désormais portée par Settings (cf config.go)
+// et lue depuis le PluginContext de chaque request. Plus de vars de package.
 
 // httpClient ignore TLS errors (Grafana self-signed sur 127.0.0.1).
 var httpClient = &http.Client{
@@ -32,33 +23,14 @@ var httpClient = &http.Client{
 	Timeout: 90 * time.Second,
 }
 
-func getenv(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
-func getenvInt(k string, def int) int {
-	v := os.Getenv(k)
-	if v == "" {
-		return def
-	}
-	var n int
-	if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
-		return n
-	}
-	return def
-}
-
 // fetchDashboardTitle interroge Grafana pour récupérer le titre du dashboard.
-func fetchDashboardTitle(ctx context.Context, uid string) (string, error) {
-	if grafanaSAToken == "" {
+func fetchDashboardTitle(ctx context.Context, s Settings, uid string) (string, error) {
+	if s.GrafanaSAToken == "" {
 		return uid, nil // pas d'auth configurée, retourne l'UID comme titre
 	}
-	u := fmt.Sprintf("%s/api/dashboards/uid/%s", strings.TrimRight(grafanaURL, "/"), uid)
+	u := fmt.Sprintf("%s/api/dashboards/uid/%s", strings.TrimRight(s.GrafanaURL, "/"), uid)
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
-	req.Header.Set("Authorization", "Bearer "+grafanaSAToken)
+	req.Header.Set("Authorization", "Bearer "+s.GrafanaSAToken)
 	req.Header.Set("Accept", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -84,9 +56,9 @@ func fetchDashboardTitle(ctx context.Context, uid string) (string, error) {
 }
 
 // renderDashboardPNG appelle image-renderer pour produire un PNG du dashboard.
-func renderDashboardPNG(ctx context.Context, uid, from, to, theme string) ([]byte, error) {
+func renderDashboardPNG(ctx context.Context, s Settings, uid, from, to, theme string) ([]byte, error) {
 	dashURL := fmt.Sprintf("%s/d/%s/?%s",
-		strings.TrimRight(grafanaURL, "/"), uid,
+		strings.TrimRight(s.GrafanaURL, "/"), uid,
 		url.Values{
 			"from":  {from},
 			"to":    {to},
@@ -97,21 +69,21 @@ func renderDashboardPNG(ctx context.Context, uid, from, to, theme string) ([]byt
 	)
 
 	v := url.Values{
-		"url":                {dashURL},
-		"width":              {fmt.Sprintf("%d", viewportWidth)},
-		"height":             {fmt.Sprintf("%d", viewportHeight)},
-		"encoding":           {"png"},
-		"deviceScaleFactor":  {"2.0"},
-		"timeout":            {fmt.Sprintf("%d", int(renderTimeout.Seconds()))},
-		"timezone":           {"Europe/Paris"},
+		"url":               {dashURL},
+		"width":             {fmt.Sprintf("%d", s.ViewportWidth)},
+		"height":            {fmt.Sprintf("%d", s.ViewportHeight)},
+		"encoding":          {"png"},
+		"deviceScaleFactor": {"2.0"},
+		"timeout":           {fmt.Sprintf("%d", int(s.RenderTimeout.Seconds()))},
+		"timezone":          {"Europe/Paris"},
 	}
 	renderURL := fmt.Sprintf("%s/render?%s",
-		strings.TrimRight(imageRendererURL, "/"), v.Encode())
+		strings.TrimRight(s.ImageRendererURL, "/"), v.Encode())
 
-	rctx, cancel := context.WithTimeout(ctx, renderTimeout+15*time.Second)
+	rctx, cancel := context.WithTimeout(ctx, s.RenderTimeout+15*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(rctx, "GET", renderURL, nil)
-	req.Header.Set("X-Auth-Token", rendererAuthTok)
+	req.Header.Set("X-Auth-Token", s.RendererAuthTok)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err

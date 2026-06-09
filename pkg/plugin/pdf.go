@@ -36,6 +36,9 @@ func buildReportPDF(pngBytes []byte, title, from, to, user, theme string) ([]byt
 		UnitStr:        "mm",
 		SizeStr:        "A4",
 	})
+	// CRUCIAL : désactiver l'auto-page-break sinon écrire près du bord
+	// fait sauter une nouvelle page vide.
+	pdf.SetAutoPageBreak(false, 0)
 
 	// === COVER PAGE ===
 	addCoverPage(pdf, title, from, to, user, theme)
@@ -48,7 +51,18 @@ func buildReportPDF(pngBytes []byte, title, from, to, user, theme string) ([]byt
 	const scaleMM = 25.4 / 96.0 / 2.0
 	pageW := float64(imgW) * scaleMM
 	pageH := float64(imgH) * scaleMM
-	pdf.AddPageFormat("L", gofpdf.SizeType{Wd: pageW, Ht: pageH})
+	// gofpdf swap les dimensions selon une logique interne. Pour avoir une
+	// page landscape qui match exactement notre PNG, on passe la dimension
+	// LA PLUS COURTE comme Wd et la PLUS LONGUE comme Ht (= "portrait" pour
+	// gofpdf), puis on demande "L" qui swap → la page finale a bien
+	// width = max(pageW, pageH).
+	shortSide := pageH
+	longSide := pageW
+	if pageH > pageW {
+		shortSide = pageW
+		longSide = pageH
+	}
+	pdf.AddPageFormat("L", gofpdf.SizeType{Wd: shortSide, Ht: longSide})
 
 	// Background dark si nécessaire (au cas où le PNG aurait de la transparence)
 	if theme == "dark" {
