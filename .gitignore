@@ -1,0 +1,15 @@
+# Build outputs
+dist/
+node_modules/
+*.log
+
+# Go
+*.exe
+*.test
+*.out
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
