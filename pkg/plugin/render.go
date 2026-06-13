@@ -23,10 +23,21 @@ var httpClient = &http.Client{
 	Timeout: 90 * time.Second,
 }
 
-// fetchDashboardTitle interroge Grafana pour récupérer le titre du dashboard.
-func fetchDashboardTitle(ctx context.Context, s Settings, uid string) (string, error) {
+// DashboardMeta = title + aspect calculé à partir du layout des panels.
+// aspect = width / height en grid units (Grafana utilise 24 colonnes,
+// chaque "row unit" = 30px par défaut). aspect <= 0 si inconnu.
+type DashboardMeta struct {
+	Title  string
+	Aspect float64
+}
+
+// fetchDashboardMeta interroge Grafana pour récupérer titre + aspect.
+// Calcule l'aspect en sommant max(gridPos.y+h) et max(gridPos.x+w) sur les
+// panels, y compris ceux contenus dans des rows collapsées (panels[].panels[]).
+func fetchDashboardMeta(ctx context.Context, s Settings, uid string) (DashboardMeta, error) {
+	meta := DashboardMeta{Title: uid}
 	if s.GrafanaSAToken == "" {
-		return uid, nil // pas d'auth configurée, retourne l'UID comme titre
+		return meta, nil
 	}
 	u := fmt.Sprintf("%s/api/dashboards/uid/%s", strings.TrimRight(s.GrafanaURL, "/"), uid)
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -34,29 +45,71 @@ func fetchDashboardTitle(ctx context.Context, s Settings, uid string) (string, e
 	req.Header.Set("Accept", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return uid, err
+		return meta, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return uid, fmt.Errorf("grafana HTTP %d: %s", resp.StatusCode, string(body)[:min(200, len(body))])
+		return meta, fmt.Errorf("grafana HTTP %d: %s", resp.StatusCode, string(body)[:min(200, len(body))])
+	}
+	type panel struct {
+		GridPos struct {
+			X int `json:"x"`
+			Y int `json:"y"`
+			W int `json:"w"`
+			H int `json:"h"`
+		} `json:"gridPos"`
+		Panels []panel `json:"panels"`
 	}
 	var payload struct {
 		Dashboard struct {
-			Title string `json:"title"`
+			Title  string  `json:"title"`
+			Panels []panel `json:"panels"`
 		} `json:"dashboard"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return uid, err
+		return meta, err
 	}
-	if payload.Dashboard.Title == "" {
-		return uid, nil
+	if payload.Dashboard.Title != "" {
+		meta.Title = payload.Dashboard.Title
 	}
-	return payload.Dashboard.Title, nil
+
+	maxX, maxY := 0, 0
+	var walk func(ps []panel)
+	walk = func(ps []panel) {
+		for _, p := range ps {
+			if rx := p.GridPos.X + p.GridPos.W; rx > maxX {
+				maxX = rx
+			}
+			if ry := p.GridPos.Y + p.GridPos.H; ry > maxY {
+				maxY = ry
+			}
+			if len(p.Panels) > 0 {
+				walk(p.Panels)
+			}
+		}
+	}
+	walk(payload.Dashboard.Panels)
+	if maxX > 0 && maxY > 0 {
+		// Grafana grid : 24 colonnes (largeur fixe), unit h ≈ 30 CSS px,
+		// unit w = container/24. Pour l'aspect, on compare directement les
+		// quantités grid : aspect = colsUtilisées / rowsUtilisées.
+		// On utilise 24 (largeur logique) plutôt que maxX, car les dashboards
+		// "wide" remplissent rarement TOUTES les colonnes mais leur viewport
+		// reste 1920 ; l'aspect doit refléter le ratio canvas.
+		const cols = 24
+		const rowPx = 30
+		// width naturelle en CSS px ≈ cols * (1920/24) = 1920
+		// height naturelle en CSS px ≈ maxY * rowPx
+		meta.Aspect = (float64(cols) * (1920.0 / 24.0)) / (float64(maxY) * rowPx)
+	}
+	return meta, nil
 }
 
 // renderDashboardPNG appelle image-renderer pour produire un PNG du dashboard.
-func renderDashboardPNG(ctx context.Context, s Settings, uid, from, to, theme string) ([]byte, error) {
+// La viewport (width, height) est celle de la stratégie choisie ; les autres
+// paramètres viennent des Settings.
+func renderDashboardPNG(ctx context.Context, s Settings, uid, from, to, theme string, viewportW, viewportH int) ([]byte, error) {
 	dashURL := fmt.Sprintf("%s/d/%s/?%s",
 		strings.TrimRight(s.GrafanaURL, "/"), uid,
 		url.Values{
@@ -70,8 +123,8 @@ func renderDashboardPNG(ctx context.Context, s Settings, uid, from, to, theme st
 
 	v := url.Values{
 		"url":               {dashURL},
-		"width":             {fmt.Sprintf("%d", s.ViewportWidth)},
-		"height":            {fmt.Sprintf("%d", s.ViewportHeight)},
+		"width":             {fmt.Sprintf("%d", viewportW)},
+		"height":            {fmt.Sprintf("%d", viewportH)},
 		"encoding":          {"png"},
 		"deviceScaleFactor": {"2.0"},
 		"timeout":           {fmt.Sprintf("%d", int(s.RenderTimeout.Seconds()))},

@@ -20,19 +20,31 @@ type Settings struct {
 	ViewportWidth    int
 	ViewportHeight   int
 	RenderTimeout    time.Duration
+
+	// Cover branding (1 template global éditable via la page Settings).
+	CoverBrandTitle        string
+	CoverBrandSubtitle     string
+	CoverFooterLeft        string
+	CoverFooterRight       string
+	CoverAccentHex         string // "#10B981" par défaut
+	CoverLogoDataURL       string // "data:image/png;base64,..." ou vide
+	CoverBackgroundDataURL string // image pleine page (généralement A4 paysage)
 }
 
 // settingsFromContext lit les Settings depuis le PluginContext de la request.
 // Cf. handler.go : on appelle ça AU MOMENT du traitement de chaque request.
 func settingsFromContext(ctx context.Context) (Settings, error) {
 	s := Settings{
-		// Valeurs par défaut applicables sur un setup où Grafana+renderer
-		// partagent le même host (cas target platform).
-		GrafanaURL:       "https://127.0.0.1:3000",
-		ImageRendererURL: "http://127.0.0.1:8181",
-		ViewportWidth:    1280,
-		ViewportHeight:   3000,
-		RenderTimeout:    60 * time.Second,
+		GrafanaURL:         "https://127.0.0.1:3000",
+		ImageRendererURL:   "http://127.0.0.1:8181",
+		ViewportWidth:      1280,
+		ViewportHeight:     3000,
+		RenderTimeout:      60 * time.Second,
+		CoverBrandTitle:    "Grafana",
+		CoverBrandSubtitle: "Dashboard report",
+		CoverFooterLeft:    "Confidential — do not redistribute",
+		CoverFooterRight:   "grafana-pdf-reporter",
+		CoverAccentHex:     "#10B981",
 	}
 	pCtx := httpadapter.PluginConfigFromContext(ctx)
 	// AppInstanceSettings est nil tant que le plugin n'a pas été enabled+settings push.
@@ -42,11 +54,18 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 
 	if raw := pCtx.AppInstanceSettings.JSONData; len(raw) > 0 {
 		var j struct {
-			GrafanaURL       string `json:"grafanaURL"`
-			ImageRendererURL string `json:"imageRendererURL"`
-			ViewportWidth    int    `json:"viewportWidth"`
-			ViewportHeight   int    `json:"viewportHeight"`
-			RenderTimeoutSec int    `json:"renderTimeoutSec"`
+			GrafanaURL         string `json:"grafanaURL"`
+			ImageRendererURL   string `json:"imageRendererURL"`
+			ViewportWidth      int    `json:"viewportWidth"`
+			ViewportHeight     int    `json:"viewportHeight"`
+			RenderTimeoutSec   int    `json:"renderTimeoutSec"`
+			CoverBrandTitle        string `json:"coverBrandTitle"`
+			CoverBrandSubtitle     string `json:"coverBrandSubtitle"`
+			CoverFooterLeft        string `json:"coverFooterLeft"`
+			CoverFooterRight       string `json:"coverFooterRight"`
+			CoverAccentHex         string `json:"coverAccentHex"`
+			CoverLogoDataURL       string `json:"coverLogoDataURL"`
+			CoverBackgroundDataURL string `json:"coverBackgroundDataURL"`
 		}
 		if err := json.Unmarshal(raw, &j); err != nil {
 			return s, fmt.Errorf("decode JSONData: %w", err)
@@ -65,6 +84,27 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 		}
 		if j.RenderTimeoutSec > 0 {
 			s.RenderTimeout = time.Duration(j.RenderTimeoutSec) * time.Second
+		}
+		if j.CoverBrandTitle != "" {
+			s.CoverBrandTitle = j.CoverBrandTitle
+		}
+		if j.CoverBrandSubtitle != "" {
+			s.CoverBrandSubtitle = j.CoverBrandSubtitle
+		}
+		if j.CoverFooterLeft != "" {
+			s.CoverFooterLeft = j.CoverFooterLeft
+		}
+		if j.CoverFooterRight != "" {
+			s.CoverFooterRight = j.CoverFooterRight
+		}
+		if j.CoverAccentHex != "" {
+			s.CoverAccentHex = j.CoverAccentHex
+		}
+		if j.CoverLogoDataURL != "" {
+			s.CoverLogoDataURL = j.CoverLogoDataURL
+		}
+		if j.CoverBackgroundDataURL != "" {
+			s.CoverBackgroundDataURL = j.CoverBackgroundDataURL
 		}
 	}
 
