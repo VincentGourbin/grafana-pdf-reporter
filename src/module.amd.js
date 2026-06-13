@@ -21,6 +21,40 @@ define([
   var h = React.createElement;
   var PLUGIN_ID = "vincentgourbin-pdfreporter-app";
 
+  // ---------- Helpers réseau ----------
+  // pluginUrl : préfixe Grafana standard pour les resources du plugin.
+  // jsonFetch : fetch authentifié → JSON, throw sur non-OK avec corps en
+  // erreur. Tous les appels API du plugin passent par ces 2 helpers, donc
+  // si Grafana change un jour le chemin, on le change ici uniquement.
+  function pluginUrl(path) {
+    // path commence sans slash : "resources/bundle?..." par exemple.
+    return "/api/plugins/" + PLUGIN_ID + "/" + path;
+  }
+  function jsonFetch(url, opts) {
+    var o = Object.assign({ credentials: "include" }, opts || {});
+    return fetch(url, o).then(function (r) {
+      if (!r.ok) {
+        return r.text().then(function (txt) {
+          throw new Error("HTTP " + r.status + ": " + txt);
+        });
+      }
+      return r.json();
+    });
+  }
+
+  // ---------- Defaults cover ----------
+  // Source unique côté front, miroir de pkg/plugin/config.go DefaultSettings().
+  // Si tu changes une valeur ici, change-la côté backend aussi (et inversement).
+  var COVER_DEFAULTS = {
+    coverBrandTitle: "Grafana",
+    coverBrandSubtitle: "Dashboard report",
+    coverFooterLeft: "Confidential — do not redistribute",
+    coverFooterRight: "grafana-pdf-reporter",
+    coverAccentHex: "#10B981",
+    coverLogoDataURL: "",
+    coverBackgroundDataURL: "",
+  };
+
   // Composants Grafana — feature-detect au cas où une version manque.
   var PluginPage = gUI.PluginPage || gRT.PluginPage || null;
   var Button = gUI.Button;
@@ -316,9 +350,7 @@ define([
     var q = new URLSearchParams();
     q.set("dashboard", uid);
     q.set("theme", currentGrafanaTheme());
-    var url =
-      "/api/plugins/" + PLUGIN_ID + "/resources/generate?" + q.toString();
-    openUrlNewTab(url);
+    openUrlNewTab(pluginUrl("resources/generate?" + q.toString()));
   }
   function uidFromContext(ctx) {
     if (ctx && ctx.dashboard && ctx.dashboard.uid) return ctx.dashboard.uid;
@@ -365,11 +397,7 @@ define([
     var setState = s[1];
 
     React.useEffect(function () {
-      fetch("/api/search?type=dash-db&limit=500", { credentials: "include" })
-        .then(function (r) {
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.json();
-        })
+      jsonFetch("/api/search?type=dash-db&limit=500")
         .then(function (list) {
           setState(function (p) {
             return Object.assign({}, p, { loading: false, dashboards: list });
@@ -422,9 +450,7 @@ define([
       q.set("to", raw.to);
       q.set("theme", currentGrafanaTheme());
       q.set("strategy", "auto");
-      var url =
-        "/api/plugins/" + PLUGIN_ID + "/resources/bundle?" + q.toString();
-      openUrlNewTab(url);
+      openUrlNewTab(pluginUrl("resources/bundle?" + q.toString()));
     }
 
     var selectedCount = Object.keys(state.selected).length;
@@ -961,7 +987,7 @@ define([
         coverBrandSubtitle: "",
         coverFooterLeft: "",
         coverFooterRight: "",
-        coverAccentHex: "#10B981",
+        coverAccentHex: COVER_DEFAULTS.coverAccentHex,
         coverLogoDataURL: "",
         coverBackgroundDataURL: "",
       },
@@ -970,13 +996,7 @@ define([
     var setState = s[1];
 
     React.useEffect(function () {
-      fetch("/api/plugins/" + PLUGIN_ID + "/settings", {
-        credentials: "include",
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.json();
-        })
+      jsonFetch(pluginUrl("settings"))
         .then(function (settings) {
           var jd = settings.jsonData || {};
           setState(function (p) {
@@ -988,7 +1008,8 @@ define([
                 coverBrandSubtitle: jd.coverBrandSubtitle || "",
                 coverFooterLeft: jd.coverFooterLeft || "",
                 coverFooterRight: jd.coverFooterRight || "",
-                coverAccentHex: jd.coverAccentHex || "#10B981",
+                coverAccentHex:
+                  jd.coverAccentHex || COVER_DEFAULTS.coverAccentHex,
                 coverLogoDataURL: jd.coverLogoDataURL || "",
                 coverBackgroundDataURL: jd.coverBackgroundDataURL || "",
               },
@@ -1012,39 +1033,41 @@ define([
         return Object.assign({}, p, { form: nf });
       });
     }
-    function onLogoFile(e) {
-      var file = e.target.files && e.target.files[0];
+    // Lit un File en data-URL après check de taille ; pose le résultat dans
+    // form[targetField]. Si trop gros, affiche l'erreur i18n désignée.
+    function readFileAsDataURL(file, maxBytes, errKey, targetField) {
       if (!file) return;
-      if (file.size > 200 * 1024) {
+      if (file.size > maxBytes) {
         setState(function (p) {
-          return Object.assign({}, p, { error: t("logo_too_large") });
+          return Object.assign({}, p, { error: t(errKey) });
         });
         return;
       }
       var fr = new FileReader();
       fr.onload = function () {
-        setFormField("coverLogoDataURL", String(fr.result));
+        setFormField(targetField, String(fr.result));
       };
       fr.readAsDataURL(file);
     }
+    function onLogoFile(e) {
+      readFileAsDataURL(
+        e.target.files && e.target.files[0],
+        200 * 1024,
+        "logo_too_large",
+        "coverLogoDataURL",
+      );
+    }
     function onBackgroundFile(e) {
-      var file = e.target.files && e.target.files[0];
-      if (!file) return;
-      if (file.size > 2 * 1024 * 1024) {
-        setState(function (p) {
-          return Object.assign({}, p, { error: t("background_too_large") });
-        });
-        return;
-      }
-      var fr = new FileReader();
-      fr.onload = function () {
-        setFormField("coverBackgroundDataURL", String(fr.result));
-      };
-      fr.readAsDataURL(file);
+      readFileAsDataURL(
+        e.target.files && e.target.files[0],
+        2 * 1024 * 1024,
+        "background_too_large",
+        "coverBackgroundDataURL",
+      );
     }
     function doCopyPrompt() {
       var promptStr = buildBackgroundPrompt(
-        state.form.coverAccentHex || "#10B981",
+        state.form.coverAccentHex || COVER_DEFAULTS.coverAccentHex,
         currentGrafanaTheme(),
       );
       copyToClipboard(promptStr)
@@ -1080,7 +1103,10 @@ define([
       setState(function (p) {
         return Object.assign({}, p, { saving: true, error: null });
       });
-      fetch("/api/plugins/" + PLUGIN_ID + "/settings", {
+      // Le POST settings renvoie souvent un corps vide → on ne passe pas par
+      // jsonFetch (qui parse JSON). On gère le statut à la main avec le
+      // cas particulier 403 pour mapper sur la string i18n.
+      fetch(pluginUrl("settings"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1178,7 +1204,7 @@ define([
                 onChange: function (e) {
                   setFormField("coverBrandTitle", e.target.value);
                 },
-                placeholder: "Grafana",
+                placeholder: COVER_DEFAULTS.coverBrandTitle,
               }),
             ),
             h(
@@ -1189,7 +1215,7 @@ define([
                 onChange: function (e) {
                   setFormField("coverBrandSubtitle", e.target.value);
                 },
-                placeholder: "Dashboard report",
+                placeholder: COVER_DEFAULTS.coverBrandSubtitle,
               }),
             ),
             h(
@@ -1200,7 +1226,7 @@ define([
                 onChange: function (e) {
                   setFormField("coverFooterLeft", e.target.value);
                 },
-                placeholder: "Confidentiel — ne pas redistribuer",
+                placeholder: COVER_DEFAULTS.coverFooterLeft,
               }),
             ),
             h(
@@ -1211,7 +1237,7 @@ define([
                 onChange: function (e) {
                   setFormField("coverFooterRight", e.target.value);
                 },
-                placeholder: "grafana-pdf-reporter",
+                placeholder: COVER_DEFAULTS.coverFooterRight,
               }),
             ),
             h(
@@ -1246,7 +1272,7 @@ define([
                   onChange: function (e) {
                     setFormField("coverAccentHex", e.target.value);
                   },
-                  placeholder: "#10B981",
+                  placeholder: COVER_DEFAULTS.coverAccentHex,
                   style: { fontFamily: "monospace" },
                 }),
               ),
@@ -1349,7 +1375,7 @@ define([
                 h("textarea", {
                   readOnly: true,
                   value: buildBackgroundPrompt(
-                    state.form.coverAccentHex || "#10B981",
+                    state.form.coverAccentHex || COVER_DEFAULTS.coverAccentHex,
                     currentGrafanaTheme(),
                   ),
                   rows: 10,
@@ -1405,14 +1431,17 @@ define([
               t("preview"),
             ),
             h(CoverPreview, {
-              brandTitle: state.form.coverBrandTitle || "Grafana",
+              brandTitle:
+                state.form.coverBrandTitle || COVER_DEFAULTS.coverBrandTitle,
               brandSubtitle:
-                state.form.coverBrandSubtitle || "Dashboard report",
+                state.form.coverBrandSubtitle ||
+                COVER_DEFAULTS.coverBrandSubtitle,
               footerLeft:
-                state.form.coverFooterLeft ||
-                "Confidential — do not redistribute",
-              footerRight: state.form.coverFooterRight || "grafana-pdf-reporter",
-              accentHex: state.form.coverAccentHex || "#10B981",
+                state.form.coverFooterLeft || COVER_DEFAULTS.coverFooterLeft,
+              footerRight:
+                state.form.coverFooterRight || COVER_DEFAULTS.coverFooterRight,
+              accentHex:
+                state.form.coverAccentHex || COVER_DEFAULTS.coverAccentHex,
               logoDataURL: state.form.coverLogoDataURL,
               backgroundDataURL: state.form.coverBackgroundDataURL,
               theme: currentGrafanaTheme(),

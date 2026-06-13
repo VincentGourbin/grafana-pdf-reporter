@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"image/png"
 	"strings"
 	"time"
 
@@ -85,6 +84,27 @@ func dataURLToImage(data string) ([]byte, string) {
 	return raw, kind
 }
 
+// drawImage : helper centralisé pour Register + Place une image. `name` doit
+// être unique sur l'instance Fpdf (sinon gofpdf retombe sur la première
+// enregistrée sous ce nom). Erreur de Register est non-fatale : si l'image
+// échoue à s'enregistrer, ImageOptions ne dessinera rien — mais on n'arrête
+// pas la génération pour autant.
+func drawImage(pdf *gofpdf.Fpdf, name, kind string, raw []byte, x, y, w, h float64) {
+	opts := gofpdf.ImageOptions{ImageType: kind, ReadDpi: false}
+	_ = pdf.RegisterImageOptionsReader(name, opts, bytes.NewReader(raw))
+	pdf.ImageOptions(name, x, y, w, h, false, opts, 0, "")
+}
+
+// centeredLine écrit une ligne de texte centrée horizontalement, à la
+// position y donnée. La fonte et la couleur doivent être réglées avant
+// l'appel.
+func centeredLine(pdf *gofpdf.Fpdf, y, lineH float64, text string) {
+	pw, _ := pdf.GetPageSize()
+	w := pdf.GetStringWidth(text)
+	pdf.SetXY((pw-w)/2, y)
+	pdf.Cell(w, lineH, text)
+}
+
 // newReportPDF construit un PDF vide, prêt à recevoir N sections via
 // addReportSection. L'orientation par défaut n'a aucune importance puisque
 // chaque AddPageFormat ré-impose la sienne.
@@ -104,16 +124,10 @@ func newReportPDF() *gofpdf.Fpdf {
 // (sinon les sections 2+ recyclent l'image de la première car gofpdf cache
 // les images par nom).
 func addReportSection(pdf *gofpdf.Fpdf, sectionIdx int, pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) error {
-	cropped, err := cropToContent(pngBytes, theme)
+	cropped, imgW, imgH, err := cropToContent(pngBytes, theme)
 	if err != nil {
 		return fmt.Errorf("crop: %w", err)
 	}
-	img, err := png.Decode(bytes.NewReader(cropped))
-	if err != nil {
-		return fmt.Errorf("decode cropped: %w", err)
-	}
-	imgW := img.Bounds().Dx()
-	imgH := img.Bounds().Dy()
 
 	if pageOrient != "P" && pageOrient != "L" {
 		pageOrient = "L"
@@ -144,20 +158,13 @@ func addReportSection(pdf *gofpdf.Fpdf, sectionIdx int, pngBytes []byte, title, 
 	x := (pw - drawW) / 2
 	y := (ph - drawH) / 2
 
-	imgName := fmt.Sprintf("dash-%d.png", sectionIdx)
-	if err := pdf.RegisterImageOptionsReader(
-		imgName,
-		gofpdf.ImageOptions{ImageType: "PNG", ReadDpi: false},
-		bytes.NewReader(cropped),
-	); err != nil && pdf.Err() {
-	}
-	pdf.ImageOptions(imgName, x, y, drawW, drawH, false,
-		gofpdf.ImageOptions{ImageType: "PNG", ReadDpi: false}, 0, "")
+	drawImage(pdf, fmt.Sprintf("dash-%d.png", sectionIdx), "PNG", cropped,
+		x, y, drawW, drawH)
 
 	return pdf.Error()
 }
 
-// buildReportPDF : compat backward — 1 dashboard = 1 section.
+// buildReportPDF : 1 dashboard = 1 section. Pratique pour /generate.
 func buildReportPDF(pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) ([]byte, error) {
 	pdf := newReportPDF()
 	if err := addReportSection(pdf, 0, pngBytes, title, from, to, user, theme, pageOrient, cov); err != nil {
@@ -199,32 +206,18 @@ func drawCover(pdf *gofpdf.Fpdf, title, from, to, user, theme string, cov CoverC
 	pdf.SetFillColor(bg[0], bg[1], bg[2])
 	pdf.Rect(0, 0, pw, ph, "F")
 	if raw, kind := dataURLToImage(cov.BackgroundDataURL); raw != nil {
-		name := fmt.Sprintf("bg-%p", &raw)
-		_ = pdf.RegisterImageOptionsReader(
-			name,
-			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false},
-			bytes.NewReader(raw),
-		)
-		// Couvre toute la page ; l'image qui ne respecte pas le ratio
-		// sera étirée — au user de fournir un fichier au bon ratio.
-		pdf.ImageOptions(name, 0, 0, pw, ph, false,
-			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false}, 0, "")
+		// L'image qui ne respecte pas le ratio sera étirée — au user de
+		// fournir un fichier au bon ratio.
+		drawImage(pdf, "cover-bg", kind, raw, 0, 0, pw, ph)
 	}
 
 	pdf.SetFillColor(accent[0], accent[1], accent[2])
 	pdf.Rect(0, 0, 12, ph, "F")
 
-	// Logo (optionnel) — placé à gauche du titre de brand. Limite 20mm carré.
+	// Logo (optionnel) — placé à gauche du titre de brand. Limite 18mm carré.
 	logoRight := 30.0
 	if raw, kind := dataURLToImage(cov.LogoDataURL); raw != nil {
-		name := fmt.Sprintf("logo-%p", &raw)
-		_ = pdf.RegisterImageOptionsReader(
-			name,
-			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false},
-			bytes.NewReader(raw),
-		)
-		pdf.ImageOptions(name, 30, 22, 18, 18, false,
-			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false}, 0, "")
+		drawImage(pdf, "cover-logo", kind, raw, 30, 22, 18, 18)
 		logoRight = 54.0
 	}
 
@@ -247,32 +240,24 @@ func drawCover(pdf *gofpdf.Fpdf, title, from, to, user, theme string, cov CoverC
 	pdf.RoundedRect(cardX, cardY, cardW, cardH, 6, "1234", "F")
 	pdf.SetAlpha(1.0, "Normal")
 
+	// Lignes centrées dans la card.
 	pdf.SetTextColor(textMain[0], textMain[1], textMain[2])
 	pdf.SetFont("Helvetica", "B", 32)
-	titleStr := tr(title)
-	titleW := pdf.GetStringWidth(titleStr)
-	pdf.SetXY((pw-titleW)/2, cardY+cardH/2-20)
-	pdf.Cell(titleW, 12, titleStr)
+	centeredLine(pdf, cardY+cardH/2-20, 12, tr(title))
 
-	pdf.SetFont("Helvetica", "", 14)
 	pdf.SetTextColor(textDim[0], textDim[1], textDim[2])
-	period := tr(fmt.Sprintf("Période  ·  %s  →  %s", from, to))
-	periodW := pdf.GetStringWidth(period)
-	pdf.SetXY((pw-periodW)/2, cardY+cardH/2-2)
-	pdf.Cell(periodW, 6, period)
+	pdf.SetFont("Helvetica", "", 14)
+	centeredLine(pdf, cardY+cardH/2-2, 6,
+		tr(fmt.Sprintf("Période  ·  %s  →  %s", from, to)))
 
 	pdf.SetTextColor(textMain[0], textMain[1], textMain[2])
 	pdf.SetFont("Helvetica", "", 11)
 	now := time.Now().UTC().Format("2006-01-02 15:04 UTC")
-	gen := tr(fmt.Sprintf("Généré le %s", now))
-	genW := pdf.GetStringWidth(gen)
-	pdf.SetXY((pw-genW)/2, cardY+cardH/2+15)
-	pdf.Cell(genW, 5, gen)
+	centeredLine(pdf, cardY+cardH/2+15, 5,
+		tr(fmt.Sprintf("Généré le %s", now)))
 	if user != "" && user != "-" {
-		byUser := tr(fmt.Sprintf("par %s (via Grafana)", user))
-		byW := pdf.GetStringWidth(byUser)
-		pdf.SetXY((pw-byW)/2, cardY+cardH/2+22)
-		pdf.Cell(byW, 5, byUser)
+		centeredLine(pdf, cardY+cardH/2+22, 5,
+			tr(fmt.Sprintf("par %s (via Grafana)", user)))
 	}
 
 	pdf.SetTextColor(textDim[0], textDim[1], textDim[2])
