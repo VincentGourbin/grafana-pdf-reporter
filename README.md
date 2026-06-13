@@ -1,84 +1,142 @@
 # grafana-pdf-reporter
 
-Grafana app plugin: export dashboards to PDF with a custom cover page.
+Grafana app plugin (Go + AMD JS) that exports dashboards to nicely-branded PDF
+reports — single dashboard or multi-dashboard bundle, with a customizable
+cover page (logo, accent color, background image).
+
+## Features
+
+- **Sidebar entry** (megamenu) → page with multi-select dashboard list +
+  Grafana-native `TimeRangePicker`.
+- **Cmd+K shortcut** to export the current dashboard directly.
+- **Multi-dashboard bundle**: pick N dashboards → one concatenated PDF
+  (cover + page per dashboard), each section uses A4 with the orientation
+  that best fits the dashboard's natural aspect ratio (landscape / square /
+  portrait, auto-detected via Grafana API `gridPos`).
+- **Cover branding** via Plugin Settings: brand title, subtitle, footer
+  texts, accent color, logo (PNG/JPEG ≤200 KB), full-page background image
+  (PNG/JPEG ≤2 MB). A semi-transparent card overlays the background so it
+  remains visible.
+- **Image-gen prompt template** in Settings: copy-paste into DALL-E / FLUX /
+  Imagen / Midjourney to generate a matching background. The prompt bakes in
+  your accent color, theme, and reserved-zone constraints.
+- **Live preview** of the cover page in the Settings view, matching the PDF
+  output 1:1.
+- **i18n FR/EN** auto-detected via `navigator.language`.
+- **Theme** follows the user's current Grafana theme automatically.
 
 ## Architecture
 
 ```
-┌─ Grafana ────────────────────────────────────────┐
-│                                                  │
-│   [Bouton "Export PDF" dans la nav du dashboard] │
-│           │                                      │
-│           ▼ frontend (React, src/module.ts)      │
-│   navigate to /api/plugins/<id>/resources/       │
-│                 generate?dashboard=<uid>         │
-│           │                                      │
-│           ▼ backend (Go, pkg/plugin/)            │
-│   1. fetchDashboardTitle (Grafana /api/dashboards│
-│      /uid/<uid>)                                 │
-│   2. renderDashboardPNG (call image-renderer)    │
-│   3. cropToContent (Pillow-equivalent in Go)     │
-│   4. buildReportPDF (gofpdf : cover + dashboard) │
-│           │                                      │
-│           ▼ return                               │
-│   binary PDF download                            │
-└──────────────────────────────────────────────────┘
+   User Grafana (already SSO-authed)
+            │
+            ▼
+   ┌─────────────────────────────────────────┐
+   │  Grafana :3000                          │
+   │   ├─ vincentgourbin-pdfreporter (this)  │  Go subprocess
+   │   │    ├─ GET /resources/generate       │  1 dashboard
+   │   │    │      ?dashboard=<uid>&from=&to=
+   │   │    └─ GET /resources/bundle         │  N dashboards
+   │   │           ?dashboards=uid1,uid2,...
+   │   └─ image-renderer :8181  ──► Chromium ──► localhost:3000
+   └─────────────────────────────────────────┘
 ```
 
-Le plugin assume que **`grafana-image-renderer`** est installé (officiel Grafana, container ou plugin).
+Requires the official **`grafana-image-renderer`** running locally — the
+plugin doesn't ship Chromium itself.
 
-## Setup
+## Build
 
-### Backend Go
+Everything is dockerized (Go 1.23 + Node 20) — no host deps required.
 
 ```bash
-go mod download
-make backend  # cross-compile linux/arm64, linux/amd64, darwin/arm64
+make all          # backend (arm64 + amd64 + darwin-arm64) + frontend → dist/
+make backend      # backend only
+make frontend     # frontend only
+make clean        # nuke dist/
 ```
 
-### Frontend
+## Install
 
 ```bash
-npm install
-npm run build  # produit dist/module.js
+# 1. Copy dist/ to Grafana's plugin dir.
+cp -a dist /var/lib/grafana/plugins/vincentgourbin-pdfreporter-app
+
+# 2a. If unsigned (dev / personal): allow unsigned plugin loading.
+#     In grafana.ini / env:
+#       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=vincentgourbin-pdfreporter-app
+# 2b. If signed (private signature, see "Signing" below): nothing to do.
+
+# 3. Restart Grafana.
+
+# 4. As Grafana Admin, configure the plugin settings via UI:
+#    Apps → PDF Reporter → Settings
+#    - grafanaSAToken (secret): a Grafana Service Account token (Viewer role
+#      is enough — used to fetch dashboard metadata).
+#    - rendererAuthToken (secret): the X-Auth-Token of the local
+#      image-renderer service.
+#    - Optionally: cover branding fields (title, footer, accent, logo,
+#      background, image-gen prompt template).
 ```
 
-### Build complet
+## Signing (private signature for production)
+
+By default the plugin is unsigned — Grafana refuses to load it unless you
+set `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS`. The clean alternative is a
+**private signature**: free, bound to a list of root URLs you control.
+
+### Once: create a grafana.com access policy token
+
+1. Sign in at https://grafana.com.
+2. Org settings → **Access Policies** → **Create access policy** with
+   the **`plugins:write`** scope on your organization realm.
+3. Generate a token from that policy — copy it (`glc_...`), you won't see
+   it again.
+
+### Each build: sign with the token
 
 ```bash
-make all       # backend + frontend → dist/
+export GRAFANA_ACCESS_POLICY_TOKEN=glc_...
+
+# Sign for the URLs you'll actually access Grafana from:
+make sign                                         # uses default ROOT_URLS
+# or:
+make sign ROOT_URLS=https://your-host/,https://lan-ip:3000/
 ```
 
-## Installation sur Grafana
+The signature is **bound to the URLs** — accessing Grafana via any URL not
+listed will silently refuse to load the plugin (Grafana logs
+`signature-invalid`). Always list every entry point: external FQDN, LAN IP,
+reverse-proxy URL, etc.
 
-1. Copier `dist/` dans `<grafana-data>/plugins/vincentgourbin-pdfreporter-app/`
-2. Activer les plugins non-signés (dev) :
-   ```
-   GF_PLUGINS_ALLOW_LOADING_UNSIGNED=vincentgourbin-pdfreporter-app
-   ```
-3. Configurer les env vars du plugin (Service Account Grafana, etc.) :
-   ```
-   GF_PDFREPORTER_SA_TOKEN=glsa_...
-   GF_PDFREPORTER_IMAGE_RENDERER_URL=http://127.0.0.1:8181
-   GF_PDFREPORTER_RENDERER_AUTH_TOKEN=...
-   ```
-4. Restart Grafana
-5. Activer le plugin : Configuration > Plugins > PDF Reporter > Enable
+`make sign` produces `dist/MANIFEST.txt`. Redeploy `dist/` and you can drop
+`GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS` from your Grafana config.
 
-## Config
+## Plugin Settings (Settings page)
 
-| Env var | Default | Description |
+| Field | Where stored | Description |
 |---|---|---|
-| `GF_PDFREPORTER_GRAFANA_URL` | `https://127.0.0.1:3000` | URL interne Grafana |
-| `GF_PDFREPORTER_SA_TOKEN` | _required_ | Service Account token (rôle Viewer) |
-| `GF_PDFREPORTER_IMAGE_RENDERER_URL` | `http://127.0.0.1:8181` | URL image-renderer |
-| `GF_PDFREPORTER_RENDERER_AUTH_TOKEN` | _required_ | X-Auth-Token image-renderer |
-| `GF_PDFREPORTER_VIEWPORT_WIDTH` | `1280` | Largeur viewport CSS |
-| `GF_PDFREPORTER_VIEWPORT_HEIGHT` | `3000` | Hauteur viewport (≫ dashboard → crop) |
-| `GF_PDFREPORTER_RENDER_TIMEOUT_SEC` | `60` | Timeout render |
+| `grafanaSAToken` | `secureJsonData` | Grafana SA token (Viewer) for `/api/dashboards/uid/<uid>` |
+| `rendererAuthToken` | `secureJsonData` | X-Auth-Token sent to `image-renderer` |
+| `grafanaURL` | `jsonData` | Default `https://127.0.0.1:3000` |
+| `imageRendererURL` | `jsonData` | Default `http://127.0.0.1:8181` |
+| `coverBrandTitle` | `jsonData` | Cover top-left brand line |
+| `coverBrandSubtitle` | `jsonData` | Cover top-left subline |
+| `coverFooterLeft` | `jsonData` | Cover footer left text |
+| `coverFooterRight` | `jsonData` | Cover footer right text |
+| `coverAccentHex` | `jsonData` | Hex color, e.g. `#10B981` |
+| `coverLogoDataURL` | `jsonData` | PNG/JPEG dataURL ≤200 KB |
+| `coverBackgroundDataURL` | `jsonData` | PNG/JPEG dataURL ≤2 MB |
 
-## Status
+## Development
 
-🚧 **MVP en cours**. Stub backend + frontend en place, build pipeline à finaliser
-(webpack pour le frontend). Pour l'instant, prototype Python en parallèle dans
-`optimorin-jetson/jetson/pdf-renderer/`.
+```bash
+# Local dev harness (no Grafana required) — stubs @grafana/data/ui/runtime
+# and mocks fetch for /api/search and plugin settings.
+python3 -m http.server 8765 --bind 127.0.0.1
+open http://127.0.0.1:8765/dev/        # ?lang=fr or ?lang=en to switch
+```
+
+## License
+
+Apache-2.0 (see `LICENSE`).
