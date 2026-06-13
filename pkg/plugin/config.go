@@ -31,10 +31,26 @@ type Settings struct {
 	CoverBackgroundDataURL string // image pleine page (généralement A4 paysage)
 }
 
-// settingsFromContext lit les Settings depuis le PluginContext de la request.
-// Cf. handler.go : on appelle ça AU MOMENT du traitement de chaque request.
-func settingsFromContext(ctx context.Context) (Settings, error) {
-	s := Settings{
+// ifSetStr écrit src dans *dst seulement si src ≠ "". Pratique pour "écrase
+// le défaut uniquement si l'utilisateur a fourni une valeur".
+func ifSetStr(dst *string, src string) {
+	if src != "" {
+		*dst = src
+	}
+}
+
+// ifSetInt : idem pour les ints (zero = "non fourni").
+func ifSetInt(dst *int, src int) {
+	if src > 0 {
+		*dst = src
+	}
+}
+
+// DefaultSettings : valeurs par défaut applicables sur un setup où Grafana et
+// le renderer partagent le même host (cas target platform). Sont aussi les défauts UI
+// visibles dans la cover quand l'utilisateur n'a rien personnalisé.
+func DefaultSettings() Settings {
+	return Settings{
 		GrafanaURL:         "https://127.0.0.1:3000",
 		ImageRendererURL:   "http://127.0.0.1:8181",
 		ViewportWidth:      1280,
@@ -46,6 +62,12 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 		CoverFooterRight:   "grafana-pdf-reporter",
 		CoverAccentHex:     "#10B981",
 	}
+}
+
+// settingsFromContext lit les Settings depuis le PluginContext de la request.
+// Cf. handler.go : on appelle ça AU MOMENT du traitement de chaque request.
+func settingsFromContext(ctx context.Context) (Settings, error) {
+	s := DefaultSettings()
 	pCtx := httpadapter.PluginConfigFromContext(ctx)
 	// AppInstanceSettings est nil tant que le plugin n'a pas été enabled+settings push.
 	if pCtx.AppInstanceSettings == nil {
@@ -54,11 +76,11 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 
 	if raw := pCtx.AppInstanceSettings.JSONData; len(raw) > 0 {
 		var j struct {
-			GrafanaURL         string `json:"grafanaURL"`
-			ImageRendererURL   string `json:"imageRendererURL"`
-			ViewportWidth      int    `json:"viewportWidth"`
-			ViewportHeight     int    `json:"viewportHeight"`
-			RenderTimeoutSec   int    `json:"renderTimeoutSec"`
+			GrafanaURL             string `json:"grafanaURL"`
+			ImageRendererURL       string `json:"imageRendererURL"`
+			ViewportWidth          int    `json:"viewportWidth"`
+			ViewportHeight         int    `json:"viewportHeight"`
+			RenderTimeoutSec       int    `json:"renderTimeoutSec"`
 			CoverBrandTitle        string `json:"coverBrandTitle"`
 			CoverBrandSubtitle     string `json:"coverBrandSubtitle"`
 			CoverFooterLeft        string `json:"coverFooterLeft"`
@@ -70,42 +92,22 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 		if err := json.Unmarshal(raw, &j); err != nil {
 			return s, fmt.Errorf("decode JSONData: %w", err)
 		}
-		if j.GrafanaURL != "" {
-			s.GrafanaURL = j.GrafanaURL
-		}
-		if j.ImageRendererURL != "" {
-			s.ImageRendererURL = j.ImageRendererURL
-		}
-		if j.ViewportWidth > 0 {
-			s.ViewportWidth = j.ViewportWidth
-		}
-		if j.ViewportHeight > 0 {
-			s.ViewportHeight = j.ViewportHeight
-		}
+		ifSetStr(&s.GrafanaURL, j.GrafanaURL)
+		ifSetStr(&s.ImageRendererURL, j.ImageRendererURL)
+		ifSetInt(&s.ViewportWidth, j.ViewportWidth)
+		ifSetInt(&s.ViewportHeight, j.ViewportHeight)
 		if j.RenderTimeoutSec > 0 {
 			s.RenderTimeout = time.Duration(j.RenderTimeoutSec) * time.Second
 		}
-		if j.CoverBrandTitle != "" {
-			s.CoverBrandTitle = j.CoverBrandTitle
-		}
-		if j.CoverBrandSubtitle != "" {
-			s.CoverBrandSubtitle = j.CoverBrandSubtitle
-		}
-		if j.CoverFooterLeft != "" {
-			s.CoverFooterLeft = j.CoverFooterLeft
-		}
-		if j.CoverFooterRight != "" {
-			s.CoverFooterRight = j.CoverFooterRight
-		}
-		if j.CoverAccentHex != "" {
-			s.CoverAccentHex = j.CoverAccentHex
-		}
-		if j.CoverLogoDataURL != "" {
-			s.CoverLogoDataURL = j.CoverLogoDataURL
-		}
-		if j.CoverBackgroundDataURL != "" {
-			s.CoverBackgroundDataURL = j.CoverBackgroundDataURL
-		}
+		ifSetStr(&s.CoverBrandTitle, j.CoverBrandTitle)
+		ifSetStr(&s.CoverBrandSubtitle, j.CoverBrandSubtitle)
+		ifSetStr(&s.CoverFooterLeft, j.CoverFooterLeft)
+		ifSetStr(&s.CoverFooterRight, j.CoverFooterRight)
+		ifSetStr(&s.CoverAccentHex, j.CoverAccentHex)
+		// Logo et background acceptent "" comme "rien" (défaut vide), pas
+		// besoin de garde — affectation directe.
+		s.CoverLogoDataURL = j.CoverLogoDataURL
+		s.CoverBackgroundDataURL = j.CoverBackgroundDataURL
 	}
 
 	if secure := pCtx.AppInstanceSettings.DecryptedSecureJSONData; secure != nil {
