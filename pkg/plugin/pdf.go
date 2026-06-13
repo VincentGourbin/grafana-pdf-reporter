@@ -2,89 +2,167 @@ package plugin
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image/png"
+	"strings"
 	"time"
 
 	"github.com/jung-kurt/gofpdf"
 )
 
-const (
-	a4LandscapeW = 297.0 // mm
-	a4LandscapeH = 210.0 // mm
-)
+// CoverConfig regroupe les champs texte/visuels de la cover, alimentés
+// depuis Settings (page Settings du plugin).
+type CoverConfig struct {
+	BrandTitle        string
+	BrandSubtitle     string
+	FooterLeft        string
+	FooterRight       string
+	AccentHex         string
+	LogoDataURL       string
+	BackgroundDataURL string // image pleine page, optionnelle
+}
 
-// buildReportPDF orchestre : crop PNG → assemble cover + page dashboard.
-func buildReportPDF(pngBytes []byte, title, from, to, user, theme string) ([]byte, error) {
-	// Étape 1 : crop le PNG pour retirer la zone vide bottom.
-	cropped, err := cropToContent(pngBytes, theme)
-	if err != nil {
-		return nil, fmt.Errorf("crop: %w", err)
+func coverFromSettings(s Settings) CoverConfig {
+	return CoverConfig{
+		BrandTitle:        s.CoverBrandTitle,
+		BrandSubtitle:     s.CoverBrandSubtitle,
+		FooterLeft:        s.CoverFooterLeft,
+		FooterRight:       s.CoverFooterRight,
+		AccentHex:         s.CoverAccentHex,
+		LogoDataURL:       s.CoverLogoDataURL,
+		BackgroundDataURL: s.CoverBackgroundDataURL,
 	}
+}
 
-	// Étape 2 : déterminer les dimensions natives du PNG croppé
-	img, err := png.Decode(bytes.NewReader(cropped))
-	if err != nil {
-		return nil, fmt.Errorf("decode cropped: %w", err)
+// hexToRGB parse "#RRGGBB" → [3]int{r,g,b}. Retourne fallback en cas d'échec.
+func hexToRGB(hex string, fallback [3]int) [3]int {
+	h := strings.TrimSpace(hex)
+	h = strings.TrimPrefix(h, "#")
+	if len(h) != 6 {
+		return fallback
 	}
-	imgW := img.Bounds().Dx()
-	imgH := img.Bounds().Dy()
+	var r, g, b int
+	if _, err := fmt.Sscanf(h, "%02x%02x%02x", &r, &g, &b); err != nil {
+		return fallback
+	}
+	return [3]int{r, g, b}
+}
 
-	// Étape 3 : initialiser le PDF avec cover A4 paysage standard.
+// dataURLToImage parse "data:image/png;base64,..." → (bytes, mimeShortType).
+// mimeShortType ∈ {"PNG", "JPG"} (compatible gofpdf ImageOptions). Retourne
+// (nil, "") si la dataURL est vide / invalide.
+func dataURLToImage(data string) ([]byte, string) {
+	if data == "" {
+		return nil, ""
+	}
+	if !strings.HasPrefix(data, "data:") {
+		return nil, ""
+	}
+	comma := strings.Index(data, ",")
+	if comma < 0 {
+		return nil, ""
+	}
+	header := data[5:comma] // ex: "image/png;base64"
+	payload := data[comma+1:]
+	if !strings.Contains(header, "base64") {
+		return nil, ""
+	}
+	mime := strings.SplitN(header, ";", 2)[0]
+	var kind string
+	switch mime {
+	case "image/png":
+		kind = "PNG"
+	case "image/jpeg", "image/jpg":
+		kind = "JPG"
+	default:
+		return nil, ""
+	}
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return nil, ""
+	}
+	return raw, kind
+}
+
+// newReportPDF construit un PDF vide, prêt à recevoir N sections via
+// addReportSection. L'orientation par défaut n'a aucune importance puisque
+// chaque AddPageFormat ré-impose la sienne.
+func newReportPDF() *gofpdf.Fpdf {
 	pdf := gofpdf.NewCustom(&gofpdf.InitType{
 		OrientationStr: "L",
 		UnitStr:        "mm",
 		SizeStr:        "A4",
 	})
-	// CRUCIAL : désactiver l'auto-page-break sinon écrire près du bord
-	// fait sauter une nouvelle page vide.
 	pdf.SetAutoPageBreak(false, 0)
+	return pdf
+}
 
-	// === COVER PAGE ===
-	addCoverPage(pdf, title, from, to, user, theme)
-
-	// === DASHBOARD PAGE ===
-	// Page custom à la taille du PNG croppé pour zéro letterboxing.
-	// 1 CSS px @ deviceScaleFactor=2 → 0.5 mm/sqrt physical (≈ scale_pt 0.375 in pts)
-	// En mm : 1 phys px = 0.5 * 0.265 ≈ 0.132 mm (approx)
-	// scale_mm = (1/96) * 25.4 / 2 = 0.132 (px-to-mm for dPR=2)
-	const scaleMM = 25.4 / 96.0 / 2.0
-	pageW := float64(imgW) * scaleMM
-	pageH := float64(imgH) * scaleMM
-	// gofpdf swap les dimensions selon une logique interne. Pour avoir une
-	// page landscape qui match exactement notre PNG, on passe la dimension
-	// LA PLUS COURTE comme Wd et la PLUS LONGUE comme Ht (= "portrait" pour
-	// gofpdf), puis on demande "L" qui swap → la page finale a bien
-	// width = max(pageW, pageH).
-	shortSide := pageH
-	longSide := pageW
-	if pageH > pageW {
-		shortSide = pageW
-		longSide = pageH
+// addReportSection ajoute une cover + une page dashboard pour UN dashboard.
+// pageOrient ∈ {"L", "P"}. `sectionIdx` doit être unique pour chaque appel
+// sur le même *Fpdf — il sert à garantir un nom d'image unique côté gofpdf
+// (sinon les sections 2+ recyclent l'image de la première car gofpdf cache
+// les images par nom).
+func addReportSection(pdf *gofpdf.Fpdf, sectionIdx int, pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) error {
+	cropped, err := cropToContent(pngBytes, theme)
+	if err != nil {
+		return fmt.Errorf("crop: %w", err)
 	}
-	pdf.AddPageFormat("L", gofpdf.SizeType{Wd: shortSide, Ht: longSide})
+	img, err := png.Decode(bytes.NewReader(cropped))
+	if err != nil {
+		return fmt.Errorf("decode cropped: %w", err)
+	}
+	imgW := img.Bounds().Dx()
+	imgH := img.Bounds().Dy()
 
-	// Background dark si nécessaire (au cas où le PNG aurait de la transparence)
+	if pageOrient != "P" && pageOrient != "L" {
+		pageOrient = "L"
+	}
+	a4 := gofpdf.SizeType{Wd: 210, Ht: 297}
+
+	// === COVER ===
+	pdf.AddPageFormat(pageOrient, a4)
+	drawCover(pdf, title, from, to, user, theme, cov)
+
+	// === DASHBOARD ===
+	pdf.AddPageFormat(pageOrient, a4)
+	pw, ph := pdf.GetPageSize()
 	if theme == "dark" {
-		pdf.SetFillColor(17, 18, 23) // #111217
-		pdf.Rect(0, 0, pageW, pageH, "F")
+		pdf.SetFillColor(17, 18, 23)
+		pdf.Rect(0, 0, pw, ph, "F")
 	}
+	imgRatio := float64(imgW) / float64(imgH)
+	pageRatio := pw / ph
+	var drawW, drawH float64
+	if imgRatio > pageRatio {
+		drawW = pw
+		drawH = pw / imgRatio
+	} else {
+		drawH = ph
+		drawW = ph * imgRatio
+	}
+	x := (pw - drawW) / 2
+	y := (ph - drawH) / 2
 
-	// Embed PNG à la taille exacte de la page
+	imgName := fmt.Sprintf("dash-%d.png", sectionIdx)
 	if err := pdf.RegisterImageOptionsReader(
-		"dashboard.png",
+		imgName,
 		gofpdf.ImageOptions{ImageType: "PNG", ReadDpi: false},
 		bytes.NewReader(cropped),
 	); err != nil && pdf.Err() {
-		// gofpdf retourne un err noop si déjà enregistrée — on tolère
 	}
-	pdf.ImageOptions("dashboard.png", 0, 0, pageW, pageH, false,
+	pdf.ImageOptions(imgName, x, y, drawW, drawH, false,
 		gofpdf.ImageOptions{ImageType: "PNG", ReadDpi: false}, 0, "")
 
-	if pdf.Err() {
-		return nil, pdf.Error()
-	}
+	return pdf.Error()
+}
 
+// buildReportPDF : compat backward — 1 dashboard = 1 section.
+func buildReportPDF(pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) ([]byte, error) {
+	pdf := newReportPDF()
+	if err := addReportSection(pdf, 0, pngBytes, title, from, to, user, theme, pageOrient, cov); err != nil {
+		return nil, err
+	}
 	var out bytes.Buffer
 	if err := pdf.Output(&out); err != nil {
 		return nil, err
@@ -92,89 +170,115 @@ func buildReportPDF(pngBytes []byte, title, from, to, user, theme string) ([]byt
 	return out.Bytes(), nil
 }
 
-// addCoverPage génère la page de couverture sur le PDF en cours.
-func addCoverPage(pdf *gofpdf.Fpdf, title, from, to, user, theme string) {
-	pdf.AddPage()
+// drawCover dessine la cover : page déjà créée par l'appelant.
+func drawCover(pdf *gofpdf.Fpdf, title, from, to, user, theme string, cov CoverConfig) {
 	pw, ph := pdf.GetPageSize()
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
 
-	// Palette thème
 	var (
-		bg, panel, accent              [3]int
-		textMain, textDim              [3]int
+		bg, panel         [3]int
+		textMain, textDim [3]int
+		defaultAccent     [3]int
 	)
 	if theme == "dark" {
-		bg = [3]int{15, 17, 21}        // #0F1115
-		panel = [3]int{27, 30, 37}     // #1B1E25
-		accent = [3]int{16, 185, 129}  // #10B981
-		textMain = [3]int{243, 244, 246} // #F3F4F6
-		textDim = [3]int{156, 163, 175}  // #9CA3AF
+		bg = [3]int{15, 17, 21}
+		panel = [3]int{27, 30, 37}
+		defaultAccent = [3]int{16, 185, 129}
+		textMain = [3]int{243, 244, 246}
+		textDim = [3]int{156, 163, 175}
 	} else {
 		bg = [3]int{255, 255, 255}
 		panel = [3]int{243, 244, 246}
-		accent = [3]int{5, 150, 105}
+		defaultAccent = [3]int{5, 150, 105}
 		textMain = [3]int{17, 24, 39}
 		textDim = [3]int{107, 114, 128}
 	}
+	accent := hexToRGB(cov.AccentHex, defaultAccent)
 
-	// Fond
+	// Background : couleur unie, puis l'image custom par-dessus si fournie.
 	pdf.SetFillColor(bg[0], bg[1], bg[2])
 	pdf.Rect(0, 0, pw, ph, "F")
+	if raw, kind := dataURLToImage(cov.BackgroundDataURL); raw != nil {
+		name := fmt.Sprintf("bg-%p", &raw)
+		_ = pdf.RegisterImageOptionsReader(
+			name,
+			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false},
+			bytes.NewReader(raw),
+		)
+		// Couvre toute la page ; l'image qui ne respecte pas le ratio
+		// sera étirée — au user de fournir un fichier au bon ratio.
+		pdf.ImageOptions(name, 0, 0, pw, ph, false,
+			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false}, 0, "")
+	}
 
-	// Bande latérale gauche couleur accent
 	pdf.SetFillColor(accent[0], accent[1], accent[2])
 	pdf.Rect(0, 0, 12, ph, "F")
 
-	// Brand header
+	// Logo (optionnel) — placé à gauche du titre de brand. Limite 20mm carré.
+	logoRight := 30.0
+	if raw, kind := dataURLToImage(cov.LogoDataURL); raw != nil {
+		name := fmt.Sprintf("logo-%p", &raw)
+		_ = pdf.RegisterImageOptionsReader(
+			name,
+			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false},
+			bytes.NewReader(raw),
+		)
+		pdf.ImageOptions(name, 30, 22, 18, 18, false,
+			gofpdf.ImageOptions{ImageType: kind, ReadDpi: false}, 0, "")
+		logoRight = 54.0
+	}
+
 	pdf.SetTextColor(textMain[0], textMain[1], textMain[2])
 	pdf.SetFont("Helvetica", "B", 22)
-	pdf.SetXY(30, 25)
-	pdf.Cell(0, 8, "Reachy Jardin")
+	pdf.SetXY(logoRight, 25)
+	pdf.Cell(0, 8, tr(cov.BrandTitle))
 	pdf.SetTextColor(textDim[0], textDim[1], textDim[2])
 	pdf.SetFont("Helvetica", "", 11)
-	pdf.SetXY(30, 33)
-	pdf.Cell(0, 5, "Rapport d'observabilite Jetson Orin Nano")
+	pdf.SetXY(logoRight, 33)
+	pdf.Cell(0, 5, tr(cov.BrandSubtitle))
 
-	// Card centrale
 	cardX, cardY := 30.0, 60.0
 	cardW, cardH := pw-60, ph-100
+	// Card semi-transparente : laisse voir le background custom dessous,
+	// tout en gardant le texte lisible. Alpha 0.7 = compromis lisibilité/
+	// transparence sympa pour des fonds peu contrastés.
+	pdf.SetAlpha(0.7, "Normal")
 	pdf.SetFillColor(panel[0], panel[1], panel[2])
 	pdf.RoundedRect(cardX, cardY, cardW, cardH, 6, "1234", "F")
+	pdf.SetAlpha(1.0, "Normal")
 
-	// Titre du dashboard
 	pdf.SetTextColor(textMain[0], textMain[1], textMain[2])
 	pdf.SetFont("Helvetica", "B", 32)
-	titleW := pdf.GetStringWidth(title)
+	titleStr := tr(title)
+	titleW := pdf.GetStringWidth(titleStr)
 	pdf.SetXY((pw-titleW)/2, cardY+cardH/2-20)
-	pdf.Cell(titleW, 12, title)
+	pdf.Cell(titleW, 12, titleStr)
 
-	// Période
 	pdf.SetFont("Helvetica", "", 14)
 	pdf.SetTextColor(textDim[0], textDim[1], textDim[2])
-	period := fmt.Sprintf("Periode  -  %s  >  %s", from, to)
+	period := tr(fmt.Sprintf("Période  ·  %s  →  %s", from, to))
 	periodW := pdf.GetStringWidth(period)
 	pdf.SetXY((pw-periodW)/2, cardY+cardH/2-2)
 	pdf.Cell(periodW, 6, period)
 
-	// Bloc info bas de card
 	pdf.SetTextColor(textMain[0], textMain[1], textMain[2])
 	pdf.SetFont("Helvetica", "", 11)
 	now := time.Now().UTC().Format("2006-01-02 15:04 UTC")
-	gen := fmt.Sprintf("Genere le %s", now)
+	gen := tr(fmt.Sprintf("Généré le %s", now))
 	genW := pdf.GetStringWidth(gen)
 	pdf.SetXY((pw-genW)/2, cardY+cardH/2+15)
 	pdf.Cell(genW, 5, gen)
 	if user != "" && user != "-" {
-		byUser := fmt.Sprintf("par %s (via Grafana)", user)
+		byUser := tr(fmt.Sprintf("par %s (via Grafana)", user))
 		byW := pdf.GetStringWidth(byUser)
 		pdf.SetXY((pw-byW)/2, cardY+cardH/2+22)
 		pdf.Cell(byW, 5, byUser)
 	}
 
-	// Footer
 	pdf.SetTextColor(textDim[0], textDim[1], textDim[2])
 	pdf.SetFont("Helvetica", "", 8)
 	pdf.SetXY(30, ph-15)
-	pdf.Cell(0, 4, "Confidentiel - ne pas redistribuer")
+	pdf.Cell(0, 4, tr(cov.FooterLeft))
 	pdf.SetXY(pw-90, ph-15)
-	pdf.Cell(80, 4, "grafana-pdf-reporter")
+	pdf.Cell(80, 4, tr(cov.FooterRight))
 }

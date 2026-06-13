@@ -22,16 +22,31 @@
     "grafanaDependency": ">=11.0.0",
     "plugins": []
   },
-  "includes": [],
+  "includes": [
+    {
+      "type": "page",
+      "name": "PDF Reporter",
+      "path": "/a/vincentgourbin-pdfreporter-app",
+      "role": "Viewer",
+      "addToNav": true,
+      "defaultNav": true
+    }
+  ],
   "extensions": {
     "addedLinks": [
       {
         "title": "Export PDF",
-        "description": "Generate a PDF report of this dashboard",
-        "targets": ["grafana/dashboard/action"]
+        "description": "Open the PDF Reporter page",
+        "targets": ["grafana/megamenu/action"]
+      },
+      {
+        "title": "Export PDF",
+        "description": "Generate a PDF report of the current dashboard",
+        "targets": ["grafana/commandpalette/action"]
       }
     ]
   },
   "backend": true,
-  "executable": "gpx_pdfreporter"
+  "executable": "gpx_pdfreporter",
+  "preload": true
 }

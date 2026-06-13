@@ -38,14 +38,10 @@ frontend:
 	# 2. Logo (placeholder SVG simple si pas de logo officiel)
 	[ -f src/img/logo.svg ] && cp src/img/logo.svg dist/img/logo.svg || \
 	  printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="6" fill="#10B981"/><text x="24" y="32" text-anchor="middle" fill="white" font-family="sans-serif" font-weight="bold" font-size="20">PDF</text></svg>\n' > dist/img/logo.svg
-	# 3. Bundle module.ts via esbuild (image Docker, user non-root).
-	# Grafana 11+ accepte les ES modules pour les plugins.
-	$(NODE_RUN) sh -c "\
-	  npx --yes esbuild src/module.ts \
-	    --bundle --format=esm --platform=browser --target=es2020 \
-	    --external:@grafana/data --external:@grafana/runtime --external:@grafana/ui --external:react --external:react-dom \
-	    --outfile=dist/module.js \
-	"
+	# 3. Module frontend : on copie src/module.amd.js (écrit à la main en AMD).
+	#    Grafana exige du AMD côté plugin loader ; esbuild ne sait pas faire
+	#    de l'AMD, et webpack est lourd → AMD vanilla, 60 lignes.
+	cp src/module.amd.js dist/module.js
 
 clean:
 	rm -rf dist/

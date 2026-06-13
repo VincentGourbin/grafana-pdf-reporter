@@ -31,6 +31,7 @@ func NewApp(_ context.Context, _ backend.AppInstanceSettings) (instancemgmt.Inst
 	a := &App{logger: log.DefaultLogger}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/generate", a.handleGenerate)
+	mux.HandleFunc("/bundle", a.handleBundle)
 	mux.HandleFunc("/healthz", a.handleHealthz)
 	a.resourceHandler = httpadapter.New(mux)
 	a.logger.Info("pdf-reporter app instance created")

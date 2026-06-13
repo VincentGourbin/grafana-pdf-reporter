@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>PDF Reporter — dev harness</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@grafana/saga-icons@1/dist/svg/icons.css"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0f1115;
+        color: #e5e7eb;
+      }
+      .dev-header {
+        background: #1b1e25;
+        border-bottom: 1px solid #2a2c33;
+        padding: 8px 16px;
+        font-size: 13px;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+      }
+      .dev-header button {
+        background: transparent;
+        color: #9ca3af;
+        border: 1px solid #2a2c33;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .dev-header button.active {
+        color: #10b981;
+        border-color: #10b981;
+      }
+      #root {
+        min-height: calc(100vh - 40px);
+      }
+      /* Reset basique pour les stubs */
+      input,
+      button {
+        font-family: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dev-header">
+      <strong>dev harness</strong>
+      <span style="opacity: 0.7"
+        >stubs Grafana — pas besoin de re-login Authentik</span
+      >
+      <span style="margin-left: auto">
+        <button id="btn-lang-fr">FR</button>
+        <button id="btn-lang-en">EN</button>
+      </span>
+    </div>
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script src="./grafana-stubs.js"></script>
+    <script src="./amd-shim.js"></script>
+    <script src="./mock-fetch.js"></script>
+
+    <script>
+      // Charge module.amd.js puis monte RootPage sur #root.
+      function loadModule(cb) {
+        var s = document.createElement("script");
+        s.src = "../src/module.amd.js";
+        s.onload = cb;
+        document.body.appendChild(s);
+      }
+      function mount() {
+        var RootPage = window.__pdfreporter_RootPage;
+        if (!RootPage) {
+          document.getElementById("root").innerText =
+            "Erreur : module.amd.js n'a pas exposé RootPage sur window.__pdfreporter_RootPage";
+          return;
+        }
+        var root = ReactDOM.createRoot(document.getElementById("root"));
+        root.render(React.createElement(RootPage));
+      }
+
+      // Force la langue via querystring (?lang=fr) en patchant navigator.language
+      var urlLang = new URL(location.href).searchParams.get("lang");
+      if (urlLang) {
+        Object.defineProperty(navigator, "language", {
+          configurable: true,
+          get: function () {
+            return urlLang;
+          },
+        });
+      }
+
+      document.getElementById("btn-lang-fr").onclick = function () {
+        var u = new URL(location.href);
+        u.searchParams.set("lang", "fr");
+        location.href = u.toString();
+      };
+      document.getElementById("btn-lang-en").onclick = function () {
+        var u = new URL(location.href);
+        u.searchParams.set("lang", "en");
+        location.href = u.toString();
+      };
+      var curLang = (urlLang || navigator.language || "en").slice(0, 2);
+      document
+        .getElementById("btn-lang-" + (curLang === "fr" ? "fr" : "en"))
+        .classList.add("active");
+
+      loadModule(mount);
+    </script>
+  </body>
+</html>
