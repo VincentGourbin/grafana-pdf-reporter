@@ -20,6 +20,10 @@ type Settings struct {
 	ViewportWidth    int
 	ViewportHeight   int
 	RenderTimeout    time.Duration
+	// DeviceScaleFactor : facteur de résolution passé à image-renderer.
+	// Quadratique en mémoire (2.0 = 4× pixels vs 1.0). Défaut 1.5 pour borner
+	// l'empreinte du decode RGBA côté plugin (cf. issue OOM).
+	DeviceScaleFactor float64
 
 	// Cover branding (1 template global éditable via la page Settings).
 	CoverBrandTitle        string
@@ -56,6 +60,7 @@ func DefaultSettings() Settings {
 		ViewportWidth:      1280,
 		ViewportHeight:     3000,
 		RenderTimeout:      60 * time.Second,
+		DeviceScaleFactor:  1.5,
 		CoverBrandTitle:    "Grafana",
 		CoverBrandSubtitle: "Dashboard report",
 		CoverFooterLeft:    "Confidential — do not redistribute",
@@ -76,18 +81,19 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 
 	if raw := pCtx.AppInstanceSettings.JSONData; len(raw) > 0 {
 		var j struct {
-			GrafanaURL             string `json:"grafanaURL"`
-			ImageRendererURL       string `json:"imageRendererURL"`
-			ViewportWidth          int    `json:"viewportWidth"`
-			ViewportHeight         int    `json:"viewportHeight"`
-			RenderTimeoutSec       int    `json:"renderTimeoutSec"`
-			CoverBrandTitle        string `json:"coverBrandTitle"`
-			CoverBrandSubtitle     string `json:"coverBrandSubtitle"`
-			CoverFooterLeft        string `json:"coverFooterLeft"`
-			CoverFooterRight       string `json:"coverFooterRight"`
-			CoverAccentHex         string `json:"coverAccentHex"`
-			CoverLogoDataURL       string `json:"coverLogoDataURL"`
-			CoverBackgroundDataURL string `json:"coverBackgroundDataURL"`
+			GrafanaURL             string  `json:"grafanaURL"`
+			ImageRendererURL       string  `json:"imageRendererURL"`
+			ViewportWidth          int     `json:"viewportWidth"`
+			ViewportHeight         int     `json:"viewportHeight"`
+			DeviceScaleFactor      float64 `json:"deviceScaleFactor"`
+			RenderTimeoutSec       int     `json:"renderTimeoutSec"`
+			CoverBrandTitle        string  `json:"coverBrandTitle"`
+			CoverBrandSubtitle     string  `json:"coverBrandSubtitle"`
+			CoverFooterLeft        string  `json:"coverFooterLeft"`
+			CoverFooterRight       string  `json:"coverFooterRight"`
+			CoverAccentHex         string  `json:"coverAccentHex"`
+			CoverLogoDataURL       string  `json:"coverLogoDataURL"`
+			CoverBackgroundDataURL string  `json:"coverBackgroundDataURL"`
 		}
 		if err := json.Unmarshal(raw, &j); err != nil {
 			return s, fmt.Errorf("decode JSONData: %w", err)
@@ -96,6 +102,9 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 		ifSetStr(&s.ImageRendererURL, j.ImageRendererURL)
 		ifSetInt(&s.ViewportWidth, j.ViewportWidth)
 		ifSetInt(&s.ViewportHeight, j.ViewportHeight)
+		if j.DeviceScaleFactor > 0 {
+			s.DeviceScaleFactor = j.DeviceScaleFactor
+		}
 		if j.RenderTimeoutSec > 0 {
 			s.RenderTimeout = time.Duration(j.RenderTimeoutSec) * time.Second
 		}
