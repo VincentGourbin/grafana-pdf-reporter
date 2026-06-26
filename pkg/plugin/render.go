@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -121,12 +122,18 @@ func renderDashboardPNG(ctx context.Context, s Settings, uid, from, to, theme st
 		}.Encode(),
 	)
 
+	// deviceScaleFactor est quadratique en mémoire (decode RGBA côté plugin) :
+	// 2.0 = 4× pixels vs 1.0. On borne au défaut 1.5 si non/mal configuré.
+	dsf := s.DeviceScaleFactor
+	if dsf <= 0 {
+		dsf = 1.5
+	}
 	v := url.Values{
 		"url":               {dashURL},
 		"width":             {fmt.Sprintf("%d", viewportW)},
 		"height":            {fmt.Sprintf("%d", viewportH)},
 		"encoding":          {"png"},
-		"deviceScaleFactor": {"2.0"},
+		"deviceScaleFactor": {strconv.FormatFloat(dsf, 'f', -1, 64)},
 		"timeout":           {fmt.Sprintf("%d", int(s.RenderTimeout.Seconds()))},
 		"timezone":          {"Europe/Paris"},
 	}
