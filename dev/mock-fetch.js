@@ -59,7 +59,7 @@
     pinned: true,
     jsonData: {
       coverBrandTitle: "Reachy Jardin",
-      coverBrandSubtitle: "Rapport d'observabilité Grafana",
+      coverBrandSubtitle: "Rapport d'observabilité",
       coverFooterLeft: "Confidentiel — ne pas redistribuer",
       coverFooterRight: "grafana-pdf-reporter",
       coverAccentHex: "#10B981",

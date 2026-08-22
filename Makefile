@@ -7,13 +7,15 @@ TODAY     := $(shell date -u +"%Y-%m-%d")
 
 # URLs où le plugin sera installé. La signature privée Grafana est bindée à
 # cette liste — accéder à Grafana via une URL absente refusera de charger le
-# plugin. Ajouter ici toutes les façons d'atteindre Grafana (LAN, FQDN, etc).
-ROOT_URLS ?= https://grafana.example.com:8443/,https://grafana.example.com:3000/
+# plugin. Ne pas mettre de valeur d'infrastructure par défaut dans le dépôt.
+ROOT_URLS ?=
 
 # Tout passe par Docker pour ne pas exiger Go/Node sur le host.
+# Bootstrap image already available on constrained build hosts. GOTOOLCHAIN
+# fetches and runs the pinned current toolchain inside the container.
 GO_IMAGE  := golang:1.23
 NODE_IMAGE := node:20-slim
-GO_RUN    := docker run --rm -v "$$PWD:/work" -w /work -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOMODCACHE=/tmp/.gomodcache $(GO_IMAGE)
+GO_RUN    := docker run --rm -v "$$PWD:/work" -w /work -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOMODCACHE=/tmp/.gomodcache -e GOTOOLCHAIN=go1.26.7+auto $(GO_IMAGE)
 NODE_RUN  := docker run --rm -v "$$PWD:/work" -w /work -u "$$(id -u):$$(id -g)" -e HOME=/tmp $(NODE_IMAGE)
 # Le signing tool a besoin du token ; on le passe à Docker explicitement
 # (pas via env_file car ça reste un secret local).
@@ -32,13 +34,15 @@ help:
 all: backend frontend
 	@echo "OK dist/ prêt"
 
-# Cross-compile pour target platform (arm64) + dev local (amd64/arm64 Mac).
+# Cross-compile pour les plateformes supportées (Linux arm64/amd64,
+# macOS arm64 et Windows amd64).
 backend:
 	@mkdir -p dist
 	$(GO_RUN) sh -c "\
 	  CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -ldflags '-s -w -X main.version=$(VERSION)' -o dist/gpx_pdfreporter_linux_arm64   ./pkg && \
 	  CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -ldflags '-s -w -X main.version=$(VERSION)' -o dist/gpx_pdfreporter_linux_amd64   ./pkg && \
-	  CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -ldflags '-s -w -X main.version=$(VERSION)' -o dist/gpx_pdfreporter_darwin_arm64  ./pkg \
+	  CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -ldflags '-s -w -X main.version=$(VERSION)' -o dist/gpx_pdfreporter_darwin_arm64  ./pkg && \
+	  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w -X main.version=$(VERSION)' -o dist/gpx_pdfreporter_windows_amd64.exe ./pkg \
 	"
 	# Le binaire utilisé par Grafana au runtime est résolu selon `executable` du plugin.json
 	# Grafana ajoute le suffixe _<os>_<arch> automatiquement.
@@ -51,6 +55,8 @@ frontend:
 	# 2. Logo (placeholder SVG simple si pas de logo officiel)
 	[ -f src/img/logo.svg ] && cp src/img/logo.svg dist/img/logo.svg || \
 	  printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="6" fill="#10B981"/><text x="24" y="32" text-anchor="middle" fill="white" font-family="sans-serif" font-weight="bold" font-size="20">PDF</text></svg>\n' > dist/img/logo.svg
+	[ ! -d src/img/screenshots ] || cp -a src/img/screenshots dist/img/
+	cp README.md LICENSE CHANGELOG.md dist/
 	# 3. Module frontend : on copie src/module.amd.js (écrit à la main en AMD).
 	#    Grafana exige du AMD côté plugin loader ; esbuild ne sait pas faire
 	#    de l'AMD, et webpack est lourd → AMD vanilla, 60 lignes.
@@ -65,6 +71,11 @@ sign:
 		echo "Crée un token sur https://grafana.com/orgs/-/access-policies"; \
 		echo "  scope: plugins:write, realm: <your org>"; \
 		echo "Puis : export GRAFANA_ACCESS_POLICY_TOKEN=glc_..."; \
+		exit 1; \
+	fi
+	@if [ -z "$(ROOT_URLS)" ]; then \
+		echo "ERROR: ROOT_URLS n'est pas défini pour la signature."; \
+		echo "Exemple : make sign ROOT_URLS=https://grafana.example.com/"; \
 		exit 1; \
 	fi
 	@if [ ! -f dist/plugin.json ]; then \

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.2.0
+        with:
+          go-version: '1.26.7'
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20.x'
+      - run: node --check src/module.amd.js
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.2.0
+        with:
+          go-version: '1.26.7'
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20.x'
+      - name: Build distribution
+        run: make all
+      - name: Package distribution
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p release/staging/vincentgourbin-pdfreporter-app
+          cp -a dist/. release/staging/vincentgourbin-pdfreporter-app/
+          (cd release/staging && zip -qr "../vincentgourbin-pdfreporter-app-v${version}.zip" vincentgourbin-pdfreporter-app)
+      - name: Validate Grafana plugin
+        run: npx --yes @grafana/plugin-validator@latest release/*.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: plugin-${{ github.ref_name }}
+          path: release/*.zip
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/*.zip --generate-notes
+      # TODO: community/private signing mode is intentionally decided outside CI.
+      # Expected secret when enabled: GRAFANA_ACCESS_POLICY_TOKEN.

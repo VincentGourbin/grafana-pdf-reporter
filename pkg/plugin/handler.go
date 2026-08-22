@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 )
 
 var uidRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
@@ -23,14 +25,14 @@ type sectionResult struct {
 }
 
 // renderOneSection : meta → strategy → render PNG. Pure.
-func renderOneSection(ctx context.Context, settings Settings, uid, from, to, theme, strategyOverride string) (*sectionResult, error) {
-	meta, err := fetchDashboardMeta(ctx, settings, uid)
+func renderOneSection(ctx context.Context, client *http.Client, settings Settings, uid, from, to, theme, tz, strategyOverride string) (*sectionResult, error) {
+	meta, err := fetchDashboardMeta(ctx, client, settings, uid)
 	if err != nil {
 		return nil, fmt.Errorf("grafana meta %s: %w", uid, err)
 	}
 	strat := resolveStrategy(strategyOverride, meta.Aspect)
 	t0 := time.Now()
-	png, err := renderDashboardPNG(ctx, settings, uid, from, to, theme,
+	png, err := renderDashboardPNG(ctx, client, settings, uid, from, to, theme, tz,
 		strat.ViewportWidth, strat.ViewportHeight)
 	if err != nil {
 		return nil, fmt.Errorf("render %s: %w", uid, err)
@@ -52,7 +54,29 @@ type reportParams struct {
 	From     string
 	To       string
 	Theme    string
+	TZ       string
 	Strategy string
+}
+
+func roleRank(role string) int {
+	switch role {
+	case "Admin":
+		return 3
+	case "Editor":
+		return 2
+	case "Viewer":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func callerFromContext(req *http.Request) (login, role string) {
+	pCtx := httpadapter.PluginConfigFromContext(req.Context())
+	if pCtx.User == nil {
+		return "", ""
+	}
+	return pCtx.User.Login, pCtx.User.Role
 }
 
 // parseDashboardsParam : "uid1,uid2,uid3" → []string (trim + skip vide).
@@ -110,6 +134,9 @@ func normalizeParams(q map[string][]string) (reportParams, int, error) {
 	if v := get("theme"); v == "dark" || v == "light" {
 		p.Theme = v
 	}
+	if v := get("tz"); len(v) <= 64 {
+		p.TZ = v
+	}
 	p.Strategy = get("strategy")
 	return p, 0, nil
 }
@@ -122,19 +149,34 @@ func (a *App) generateAndWrite(rw http.ResponseWriter, req *http.Request, p repo
 		http.Error(rw, fmt.Sprintf("settings: %v", err), http.StatusInternalServerError)
 		return
 	}
-	if settings.GrafanaSAToken == "" || settings.RendererAuthTok == "" {
-		http.Error(rw, "plugin not fully configured", http.StatusServiceUnavailable)
+	if settings.GrafanaSAToken == "" {
+		http.Error(rw, "plugin not configured: set grafanaSAToken (secureJsonData)", http.StatusServiceUnavailable)
+		return
+	}
+	select {
+	case a.renderSem <- struct{}{}:
+		defer func() { <-a.renderSem }()
+	case <-time.After(30 * time.Second):
+		http.Error(rw, "too many concurrent exports, retry later", http.StatusTooManyRequests)
+		return
+	case <-req.Context().Done():
 		return
 	}
 
-	user := req.Header.Get("X-Grafana-User")
+	user, role := callerFromContext(req)
+	if roleRank(role) < roleRank(settings.MinRole) {
+		a.logger.Warn("export denied by minimum role", "user", user, "role", role, "required", settings.MinRole)
+		http.Error(rw, "access denied: insufficient Grafana role", http.StatusForbidden)
+		return
+	}
+	client := newHTTPClient(settings, a.logger)
 	t0 := time.Now()
 	pdf := newReportPDF()
 	cov := coverFromSettings(settings)
 
 	for idx, uid := range p.UIDs {
-		sec, err := renderOneSection(req.Context(), settings, uid,
-			p.From, p.To, p.Theme, p.Strategy)
+		sec, err := renderOneSection(req.Context(), client, settings, uid,
+			p.From, p.To, p.Theme, p.TZ, p.Strategy)
 		if err != nil {
 			a.logger.Error("section failed", "uid", uid, "err", err.Error())
 			http.Error(rw, err.Error(), http.StatusBadGateway)

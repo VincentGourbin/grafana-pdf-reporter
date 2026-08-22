@@ -24,11 +24,12 @@ import (
 type App struct {
 	resourceHandler backend.CallResourceHandler
 	logger          log.Logger
+	renderSem       chan struct{}
 }
 
 // NewApp est appelé par le SDK pour instancier l'app.
 func NewApp(_ context.Context, _ backend.AppInstanceSettings) (instancemgmt.Instance, error) {
-	a := &App{logger: log.DefaultLogger}
+	a := &App{logger: log.DefaultLogger, renderSem: make(chan struct{}, 2)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/generate", a.handleGenerate)
 	mux.HandleFunc("/bundle", a.handleBundle)

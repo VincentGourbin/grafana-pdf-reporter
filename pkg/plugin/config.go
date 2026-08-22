@@ -13,13 +13,14 @@ import (
 // <id>/settings). Les valeurs sensibles vont dans secureJsonData (chiffré DB),
 // les autres dans jsonData.
 type Settings struct {
-	GrafanaURL       string
-	GrafanaSAToken   string // depuis secureJsonData
-	ImageRendererURL string
-	RendererAuthTok  string // depuis secureJsonData
-	ViewportWidth    int
-	ViewportHeight   int
-	RenderTimeout    time.Duration
+	GrafanaURL     string
+	GrafanaSAToken string // depuis secureJsonData
+	MinRole        string // rôle Grafana minimal autorisé à exporter
+	TLSSkipVerify  bool   // uniquement pour les certificats self-signed explicitement assumés
+	TLSCACert      string // certificat(s) CA PEM non secret
+	ViewportWidth  int
+	ViewportHeight int
+	RenderTimeout  time.Duration
 	// DeviceScaleFactor : facteur de résolution passé à image-renderer.
 	// Quadratique en mémoire (2.0 = 4× pixels vs 1.0). Défaut 1.5 pour borner
 	// l'empreinte du decode RGBA côté plugin (cf. issue OOM).
@@ -51,12 +52,12 @@ func ifSetInt(dst *int, src int) {
 }
 
 // DefaultSettings : valeurs par défaut applicables sur un setup où Grafana et
-// le renderer partagent le même host (cas target platform). Sont aussi les défauts UI
+// le renderer partagent le même host. Sont aussi les défauts UI
 // visibles dans la cover quand l'utilisateur n'a rien personnalisé.
 func DefaultSettings() Settings {
 	return Settings{
-		GrafanaURL:         "https://127.0.0.1:3000",
-		ImageRendererURL:   "http://127.0.0.1:8181",
+		GrafanaURL:         "http://localhost:3000",
+		MinRole:            "Viewer",
 		ViewportWidth:      1280,
 		ViewportHeight:     3000,
 		RenderTimeout:      60 * time.Second,
@@ -82,7 +83,9 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 	if raw := pCtx.AppInstanceSettings.JSONData; len(raw) > 0 {
 		var j struct {
 			GrafanaURL             string  `json:"grafanaURL"`
-			ImageRendererURL       string  `json:"imageRendererURL"`
+			MinRole                string  `json:"minRole"`
+			TLSSkipVerify          bool    `json:"tlsSkipVerify"`
+			TLSCACert              string  `json:"tlsCACert"`
 			ViewportWidth          int     `json:"viewportWidth"`
 			ViewportHeight         int     `json:"viewportHeight"`
 			DeviceScaleFactor      float64 `json:"deviceScaleFactor"`
@@ -99,7 +102,11 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 			return s, fmt.Errorf("decode JSONData: %w", err)
 		}
 		ifSetStr(&s.GrafanaURL, j.GrafanaURL)
-		ifSetStr(&s.ImageRendererURL, j.ImageRendererURL)
+		if j.MinRole == "Viewer" || j.MinRole == "Editor" || j.MinRole == "Admin" {
+			s.MinRole = j.MinRole
+		}
+		s.TLSSkipVerify = j.TLSSkipVerify
+		s.TLSCACert = j.TLSCACert
 		ifSetInt(&s.ViewportWidth, j.ViewportWidth)
 		ifSetInt(&s.ViewportHeight, j.ViewportHeight)
 		if j.DeviceScaleFactor > 0 {
@@ -121,7 +128,6 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 
 	if secure := pCtx.AppInstanceSettings.DecryptedSecureJSONData; secure != nil {
 		s.GrafanaSAToken = secure["grafanaSAToken"]
-		s.RendererAuthTok = secure["rendererAuthToken"]
 	}
 	return s, nil
 }

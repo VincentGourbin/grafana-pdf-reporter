@@ -3,6 +3,9 @@ dist/
 node_modules/
 *.log
 
+# Internal implementation notes; do not publish operational host details.
+PLAN-IMPLEMENTATION.md
+
 # Go
 *.exe
 *.test

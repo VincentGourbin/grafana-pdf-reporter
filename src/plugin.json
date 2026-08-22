@@ -9,17 +9,44 @@
       "name": "Vincent Gourbin",
       "url": "https://github.com/VincentGourbin"
     },
+    "links": [
+      {
+        "name": "Repository",
+        "url": "https://github.com/VincentGourbin/grafana-pdf-reporter"
+      },
+      {
+        "name": "Issues",
+        "url": "https://github.com/VincentGourbin/grafana-pdf-reporter/issues"
+      },
+      {
+        "name": "License",
+        "url": "https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/LICENSE"
+      }
+    ],
     "keywords": ["pdf", "report", "export", "dashboard"],
     "logos": {
       "small": "img/logo.svg",
       "large": "img/logo.svg"
     },
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "Dashboard selection",
+        "path": "img/screenshots/dashboard-selection.png"
+      },
+      {
+        "name": "Cover settings and preview",
+        "path": "img/screenshots/cover-settings.png"
+      },
+      {
+        "name": "Generated PDF",
+        "path": "img/screenshots/generated-pdf.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
   "dependencies": {
-    "grafanaDependency": ">=11.0.0",
+    "grafanaDependency": ">=11.4.0",
     "plugins": []
   },
   "includes": [

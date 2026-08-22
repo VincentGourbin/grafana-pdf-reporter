@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,17 +12,37 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
 // La config (tokens, URLs) est désormais portée par Settings (cf config.go)
 // et lue depuis le PluginContext de chaque request. Plus de vars de package.
 
-// httpClient ignore TLS errors (Grafana self-signed sur 127.0.0.1).
-var httpClient = &http.Client{
-	Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	},
-	Timeout: 90 * time.Second,
+// newHTTPClient construit le client HTTP selon la configuration TLS.
+// La vérification est stricte par défaut. Le contournement self-signed est
+// explicite, borné à cette connexion et signalé dans les logs.
+func newHTTPClient(s Settings, logger log.Logger) *http.Client {
+	tlsCfg := &tls.Config{}
+	if s.TLSSkipVerify {
+		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- option explicite d'administration
+		logger.Warn("TLS verification disabled (tlsSkipVerify=true)")
+	}
+	if s.TLSCACert != "" {
+		pool := x509.NewCertPool()
+		if pool.AppendCertsFromPEM([]byte(s.TLSCACert)) {
+			tlsCfg.RootCAs = pool
+		} else {
+			logger.Error("tlsCACert provided but not parseable, ignoring")
+		}
+	}
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+			Proxy:           http.ProxyFromEnvironment,
+		},
+		Timeout: 90 * time.Second,
+	}
 }
 
 // DashboardMeta = title + aspect calculé à partir du layout des panels.
@@ -35,7 +56,7 @@ type DashboardMeta struct {
 // fetchDashboardMeta interroge Grafana pour récupérer titre + aspect.
 // Calcule l'aspect en sommant max(gridPos.y+h) et max(gridPos.x+w) sur les
 // panels, y compris ceux contenus dans des rows collapsées (panels[].panels[]).
-func fetchDashboardMeta(ctx context.Context, s Settings, uid string) (DashboardMeta, error) {
+func fetchDashboardMeta(ctx context.Context, client *http.Client, s Settings, uid string) (DashboardMeta, error) {
 	meta := DashboardMeta{Title: uid}
 	if s.GrafanaSAToken == "" {
 		return meta, nil
@@ -44,7 +65,7 @@ func fetchDashboardMeta(ctx context.Context, s Settings, uid string) (DashboardM
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
 	req.Header.Set("Authorization", "Bearer "+s.GrafanaSAToken)
 	req.Header.Set("Accept", "application/json")
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return meta, err
 	}
@@ -107,55 +128,55 @@ func fetchDashboardMeta(ctx context.Context, s Settings, uid string) (DashboardM
 	return meta, nil
 }
 
-// renderDashboardPNG appelle image-renderer pour produire un PNG du dashboard.
-// La viewport (width, height) est celle de la stratégie choisie ; les autres
-// paramètres viennent des Settings.
-func renderDashboardPNG(ctx context.Context, s Settings, uid, from, to, theme string, viewportW, viewportH int) ([]byte, error) {
-	dashURL := fmt.Sprintf("%s/d/%s/?%s",
-		strings.TrimRight(s.GrafanaURL, "/"), uid,
-		url.Values{
-			"from":  {from},
-			"to":    {to},
-			"kiosk": {"1"},
-			"theme": {theme},
-			"orgId": {"1"},
-		}.Encode(),
-	)
-
-	// deviceScaleFactor est quadratique en mémoire (decode RGBA côté plugin) :
-	// 2.0 = 4× pixels vs 1.0. On borne au défaut 1.5 si non/mal configuré.
+// renderDashboardPNG demande à Grafana lui-même de rendre le dashboard via
+// son endpoint natif /render/d/<uid>. Grafana gère l'authentification du
+// renderer distant configuré dans [rendering] ; le plugin n'a donc pas à
+// connaître l'URL ni le secret du renderer.
+func renderDashboardPNG(ctx context.Context, client *http.Client, s Settings, uid, from, to, theme, tz string, viewportW, viewportH int) ([]byte, error) {
 	dsf := s.DeviceScaleFactor
 	if dsf <= 0 {
 		dsf = 1.5
 	}
 	v := url.Values{
-		"url":               {dashURL},
-		"width":             {fmt.Sprintf("%d", viewportW)},
-		"height":            {fmt.Sprintf("%d", viewportH)},
-		"encoding":          {"png"},
-		"deviceScaleFactor": {strconv.FormatFloat(dsf, 'f', -1, 64)},
-		"timeout":           {fmt.Sprintf("%d", int(s.RenderTimeout.Seconds()))},
-		"timezone":          {"Europe/Paris"},
+		"from":                 {from},
+		"to":                   {to},
+		"theme":                {theme},
+		"kiosk":                {"true"},
+		"hideNav":              {"true"},
+		"_dash.hideTimePicker": {"true"},
+		"_dash.hideVariables":  {"true"},
+		"width":                {strconv.Itoa(viewportW)},
+		"height":               {strconv.Itoa(viewportH)},
+		"scale":                {strconv.FormatFloat(dsf, 'f', -1, 64)},
+		"timeout":              {strconv.Itoa(int(s.RenderTimeout.Seconds()))},
 	}
-	renderURL := fmt.Sprintf("%s/render?%s",
-		strings.TrimRight(s.ImageRendererURL, "/"), v.Encode())
+	if tz != "" {
+		// `timezone` is Grafana's native dashboard URL parameter. The frontend
+		// calls the plugin-level value `tz` to keep its query compact.
+		v.Set("timezone", tz)
+	}
+	renderURL := fmt.Sprintf("%s/render/d/%s/?%s",
+		strings.TrimRight(s.GrafanaURL, "/"), uid, v.Encode())
 
 	rctx, cancel := context.WithTimeout(ctx, s.RenderTimeout+15*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(rctx, "GET", renderURL, nil)
-	req.Header.Set("X-Auth-Token", s.RendererAuthTok)
-	resp, err := httpClient.Do(req)
+	req, err := http.NewRequestWithContext(rctx, "GET", renderURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.GrafanaSAToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("image-renderer HTTP %d: %s",
+		return nil, fmt.Errorf("grafana render HTTP %d: %s",
 			resp.StatusCode, string(body)[:min(200, len(body))])
 	}
 	if len(body) < 8 || string(body[:4]) != "\x89PNG" {
-		return nil, fmt.Errorf("image-renderer returned non-PNG (first 30 bytes: %q)",
+		return nil, fmt.Errorf("grafana render returned non-PNG (first 30 bytes: %q)",
 			string(body[:min(30, len(body))]))
 	}
 	return body, nil

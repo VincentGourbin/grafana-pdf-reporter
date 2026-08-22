@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jung-kurt/gofpdf"
+	fpdf "github.com/go-pdf/fpdf"
 )
 
 // CoverConfig regroupe les champs texte/visuels de la cover, alimentés
@@ -49,7 +49,7 @@ func hexToRGB(hex string, fallback [3]int) [3]int {
 }
 
 // dataURLToImage parse "data:image/png;base64,..." → (bytes, mimeShortType).
-// mimeShortType ∈ {"PNG", "JPG"} (compatible gofpdf ImageOptions). Retourne
+// mimeShortType ∈ {"PNG", "JPG"} (compatible fpdf ImageOptions). Retourne
 // (nil, "") si la dataURL est vide / invalide.
 func dataURLToImage(data string) ([]byte, string) {
 	if data == "" {
@@ -81,16 +81,19 @@ func dataURLToImage(data string) ([]byte, string) {
 	if err != nil {
 		return nil, ""
 	}
+	if len(raw) > 2*1024*1024 {
+		return nil, ""
+	}
 	return raw, kind
 }
 
 // drawImage : helper centralisé pour Register + Place une image. `name` doit
-// être unique sur l'instance Fpdf (sinon gofpdf retombe sur la première
+// être unique sur l'instance Fpdf (sinon fpdf retombe sur la première
 // enregistrée sous ce nom). Erreur de Register est non-fatale : si l'image
 // échoue à s'enregistrer, ImageOptions ne dessinera rien — mais on n'arrête
 // pas la génération pour autant.
-func drawImage(pdf *gofpdf.Fpdf, name, kind string, raw []byte, x, y, w, h float64) {
-	opts := gofpdf.ImageOptions{ImageType: kind, ReadDpi: false}
+func drawImage(pdf *fpdf.Fpdf, name, kind string, raw []byte, x, y, w, h float64) {
+	opts := fpdf.ImageOptions{ImageType: kind, ReadDpi: false}
 	_ = pdf.RegisterImageOptionsReader(name, opts, bytes.NewReader(raw))
 	pdf.ImageOptions(name, x, y, w, h, false, opts, 0, "")
 }
@@ -98,7 +101,7 @@ func drawImage(pdf *gofpdf.Fpdf, name, kind string, raw []byte, x, y, w, h float
 // centeredLine écrit une ligne de texte centrée horizontalement, à la
 // position y donnée. La fonte et la couleur doivent être réglées avant
 // l'appel.
-func centeredLine(pdf *gofpdf.Fpdf, y, lineH float64, text string) {
+func centeredLine(pdf *fpdf.Fpdf, y, lineH float64, text string) {
 	pw, _ := pdf.GetPageSize()
 	w := pdf.GetStringWidth(text)
 	pdf.SetXY((pw-w)/2, y)
@@ -108,8 +111,8 @@ func centeredLine(pdf *gofpdf.Fpdf, y, lineH float64, text string) {
 // newReportPDF construit un PDF vide, prêt à recevoir N sections via
 // addReportSection. L'orientation par défaut n'a aucune importance puisque
 // chaque AddPageFormat ré-impose la sienne.
-func newReportPDF() *gofpdf.Fpdf {
-	pdf := gofpdf.NewCustom(&gofpdf.InitType{
+func newReportPDF() *fpdf.Fpdf {
+	pdf := fpdf.NewCustom(&fpdf.InitType{
 		OrientationStr: "L",
 		UnitStr:        "mm",
 		SizeStr:        "A4",
@@ -121,9 +124,9 @@ func newReportPDF() *gofpdf.Fpdf {
 // addReportSection ajoute une cover + une page dashboard pour UN dashboard.
 // pageOrient ∈ {"L", "P"}. `sectionIdx` doit être unique pour chaque appel
 // sur le même *Fpdf — il sert à garantir un nom d'image unique côté gofpdf
-// (sinon les sections 2+ recyclent l'image de la première car gofpdf cache
+// (sinon les sections 2+ recyclent l'image de la première car fpdf cache
 // les images par nom).
-func addReportSection(pdf *gofpdf.Fpdf, sectionIdx int, pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) error {
+func addReportSection(pdf *fpdf.Fpdf, sectionIdx int, pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) error {
 	cropped, imgW, imgH, err := cropToContent(pngBytes, theme)
 	if err != nil {
 		return fmt.Errorf("crop: %w", err)
@@ -132,7 +135,7 @@ func addReportSection(pdf *gofpdf.Fpdf, sectionIdx int, pngBytes []byte, title, 
 	if pageOrient != "P" && pageOrient != "L" {
 		pageOrient = "L"
 	}
-	a4 := gofpdf.SizeType{Wd: 210, Ht: 297}
+	a4 := fpdf.SizeType{Wd: 210, Ht: 297}
 
 	// === COVER ===
 	pdf.AddPageFormat(pageOrient, a4)
@@ -164,21 +167,8 @@ func addReportSection(pdf *gofpdf.Fpdf, sectionIdx int, pngBytes []byte, title, 
 	return pdf.Error()
 }
 
-// buildReportPDF : 1 dashboard = 1 section. Pratique pour /generate.
-func buildReportPDF(pngBytes []byte, title, from, to, user, theme, pageOrient string, cov CoverConfig) ([]byte, error) {
-	pdf := newReportPDF()
-	if err := addReportSection(pdf, 0, pngBytes, title, from, to, user, theme, pageOrient, cov); err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	if err := pdf.Output(&out); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
 // drawCover dessine la cover : page déjà créée par l'appelant.
-func drawCover(pdf *gofpdf.Fpdf, title, from, to, user, theme string, cov CoverConfig) {
+func drawCover(pdf *fpdf.Fpdf, title, from, to, user, theme string, cov CoverConfig) {
 	pw, ph := pdf.GetPageSize()
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
 

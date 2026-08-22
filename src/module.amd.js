@@ -20,6 +20,8 @@ define([
   var dateTime = gData.dateTime;
   var h = React.createElement;
   var PLUGIN_ID = "vincentgourbin-pdfreporter-app";
+  // Sous-chemin Grafana ("" si Grafana est servi à la racine).
+  var APP_SUB_URL = (gRT.config && gRT.config.appSubUrl) || "";
 
   // ---------- Helpers réseau ----------
   // pluginUrl : préfixe Grafana standard pour les resources du plugin.
@@ -28,7 +30,7 @@ define([
   // si Grafana change un jour le chemin, on le change ici uniquement.
   function pluginUrl(path) {
     // path commence sans slash : "resources/bundle?..." par exemple.
-    return "/api/plugins/" + PLUGIN_ID + "/" + path;
+    return APP_SUB_URL + "/api/plugins/" + PLUGIN_ID + "/" + path;
   }
   function jsonFetch(url, opts) {
     var o = Object.assign({ credentials: "include" }, opts || {});
@@ -92,9 +94,9 @@ define([
       logo_pick: "Choisir un fichier (PNG/JPEG, max 200 Ko)",
       logo_remove: "Retirer",
       background: "Fond de la page de garde",
-      background_pick: "Choisir un fichier (PNG/JPEG, max 2 Mo)",
+      background_pick: "Choisir un fichier (JPEG/PNG, max 800 Ko ; JPEG recommandé)",
       background_remove: "Retirer le fond",
-      background_too_large: "Image de fond trop volumineuse (max 2 Mo).",
+      background_too_large: "Image de fond trop volumineuse (max 800 Ko).",
       prompt_title: "Prompt pour générer un fond",
       prompt_help:
         "Remplace [YOUR CONCEPT HERE] par ton idée (ex. \"abstract topographic terrain\", \"sparse circuit board lines\"), puis copie tout dans DALL-E, FLUX, Imagen… La couleur d'accent et le thème sont déjà intégrés.",
@@ -149,9 +151,9 @@ define([
       logo_pick: "Choose a file (PNG/JPEG, max 200 KB)",
       logo_remove: "Remove",
       background: "Cover background",
-      background_pick: "Choose a file (PNG/JPEG, max 2 MB)",
+      background_pick: "Choose a file (JPEG/PNG, max 800 KB; JPEG recommended)",
       background_remove: "Remove background",
-      background_too_large: "Background image too large (max 2 MB).",
+      background_too_large: "Background image too large (max 800 KB).",
       prompt_title: "Image-gen prompt",
       prompt_help:
         "Replace [YOUR CONCEPT HERE] with your idea (e.g. \"abstract topographic terrain\", \"sparse circuit board lines\"), then paste into DALL-E, FLUX, Imagen… Your accent color and theme are already baked in.",
@@ -350,6 +352,9 @@ define([
     var q = new URLSearchParams();
     q.set("dashboard", uid);
     q.set("theme", currentGrafanaTheme());
+    try {
+      q.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+    } catch (e) {}
     openUrlNewTab(pluginUrl("resources/generate?" + q.toString()));
   }
   function uidFromContext(ctx) {
@@ -397,7 +402,7 @@ define([
     var setState = s[1];
 
     React.useEffect(function () {
-      jsonFetch("/api/search?type=dash-db&limit=500")
+      jsonFetch(APP_SUB_URL + "/api/search?type=dash-db&limit=500")
         .then(function (list) {
           setState(function (p) {
             return Object.assign({}, p, { loading: false, dashboards: list });
@@ -450,6 +455,9 @@ define([
       q.set("to", raw.to);
       q.set("theme", currentGrafanaTheme());
       q.set("strategy", "auto");
+      try {
+        q.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+      } catch (e) {}
       openUrlNewTab(pluginUrl("resources/bundle?" + q.toString()));
     }
 
@@ -642,7 +650,7 @@ define([
             h(
               LinkButton,
               {
-                href: "/d/" + d.uid,
+                href: APP_SUB_URL + "/d/" + d.uid,
                 target: "_blank",
                 rel: "noopener",
                 variant: "secondary",
@@ -920,34 +928,23 @@ define([
   // ---------- Settings view (cover branding) ----------
 
   // Construit dynamiquement un prompt image-gen avec la couleur d'accent
-  // et le thème en input. Inclut un placeholder explicite pour que le user
-  // sache où insérer son idée créative.
+  // et le thème en input. Volontairement court et purement descriptif : les
+  // modèles de diffusion ne savent pas respecter des zones en pourcentages,
+  // et toute mention de texte/titres/overlays les incite à en dessiner. On
+  // décrit donc juste l'ambiance : centre calme, détails en bordure.
   function buildBackgroundPrompt(accentHex, theme) {
     var isDark = theme === "dark";
-    var palette = isDark ? "dark slate (#0F1115)" : "off-white (#F9FAFB)";
+    var base = isDark
+      ? "very dark slate gray (#0F1115)"
+      : "soft off-white (#F9FAFB)";
     return [
-      "# === ÉDITE CETTE LIGNE — décris ton thème visuel ici ===",
-      "[YOUR CONCEPT HERE — e.g. \"abstract topographic terrain\", \"sparse circuit board lines\", \"flowing data streams\", \"minimalist constellation grid\"]",
-      "# ====================================================",
+      "[YOUR CONCEPT HERE — e.g. \"abstract topographic contour lines\", \"faint circuit traces\", \"flowing particle streams\"]",
       "",
-      "Generate the above concept as an abstract background image for an A4-landscape PDF cover page (aspect ratio 1.414:1, ideally 1414×1000 px).",
-      "",
-      "STRICTLY NO TEXT in the image: no letters, no words, no numbers, no logos, no signs, no labels — pure abstract visuals only. (Text will be overlaid by the PDF generator.)",
-      "",
-      "Style: minimalist, professional, modern dashboard/observability aesthetic.",
-      "",
-      "Color palette:",
-      "- Dominant tone: " + palette,
-      "- Accent color (used sparingly, ~5–10% of pixels): " + accentHex,
-      "- No other vivid colors — keep the palette tight.",
-      "",
-      "Layout (zones the image must respect — visible details should live in the CORNERS and EDGES, not in these reserved areas):",
-      "- Left vertical strip 0%–5% width: completely uniform background (will be overlaid with an accent color stripe).",
-      "- Top-left zone 7%–35% width × 8%–22% height: keep quiet/subtle (brand title will be overlaid).",
-      "- Center 10%–90% width × 28%–82% height: keep quiet/subtle (a semi-transparent card with the dashboard title will be overlaid here — but the background should still show through, so make it interesting but not busy).",
-      "- Bottom strip 92%–100% height: keep quiet/subtle (footer text).",
-      "",
-      "Push visual interest to the four corners and the right side. The central zone should be readable through a 70%-opacity dark overlay.",
+      "Minimalist abstract wallpaper, wide landscape format.",
+      "Near-uniform " + base + " background.",
+      "Sparse " + accentHex + " accents, fine details only along the edges and corners.",
+      "Large calm empty center, soft low-contrast gradients, elegant, professional.",
+      "No text, no letters, no numbers, no logos.",
     ].join("\n");
   }
 
@@ -1060,7 +1057,7 @@ define([
     function onBackgroundFile(e) {
       readFileAsDataURL(
         e.target.files && e.target.files[0],
-        2 * 1024 * 1024,
+        800 * 1024,
         "background_too_large",
         "coverBackgroundDataURL",
       );
@@ -1500,7 +1497,7 @@ define([
         var ctx = helpers && (helpers.context || helpers);
         var uid = uidFromContext(ctx);
         if (uid) exportSingle(uid);
-        else window.location.href = "/a/" + PLUGIN_ID;
+        else window.location.href = APP_SUB_URL + "/a/" + PLUGIN_ID;
       },
     });
 
