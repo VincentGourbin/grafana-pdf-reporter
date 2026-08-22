@@ -4,7 +4,7 @@ Grafana OSS app plugin that exports one or more dashboards to a branded PDF.
 It provides a cover page, automatic dashboard orientation, native Grafana
 time ranges, and a live cover preview.
 
-![Dashboard selection](https://raw.githubusercontent.com/VincentGourbin/grafana-pdf-reporter/main/src/img/screenshots/dashboard-selection.png)
+![Dashboard selection](src/img/screenshots/dashboard-selection.png)
 
 ## Features
 
