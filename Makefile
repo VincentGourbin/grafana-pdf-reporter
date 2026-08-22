@@ -2,7 +2,7 @@
 # Cible : produire `dist/` qui peut être copié dans /var/lib/grafana/plugins.
 
 PLUGIN_ID := vincentgourbin-pdfreporter-app
-VERSION   := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION   := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
 TODAY     := $(shell date -u +"%Y-%m-%d")
 
 # URLs où le plugin sera installé. La signature privée Grafana est bindée à

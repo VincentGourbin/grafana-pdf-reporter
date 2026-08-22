@@ -4,7 +4,7 @@ Grafana OSS app plugin that exports one or more dashboards to a branded PDF.
 It provides a cover page, automatic dashboard orientation, native Grafana
 time ranges, and a live cover preview.
 
-![Dashboard selection](src/img/screenshots/dashboard-selection.png)
+![Dashboard selection](https://raw.githubusercontent.com/VincentGourbin/grafana-pdf-reporter/main/src/img/screenshots/dashboard-selection.png)
 
 ## Features
 
@@ -17,7 +17,7 @@ time ranges, and a live cover preview.
 - French/English UI and Grafana light/dark theme support.
 - Grafana subpath support (`GF_SERVER_SERVE_FROM_SUB_PATH=true`).
 
-Detailed scenarios are documented in [Use cases](docs/USE-CASES.md), including
+Detailed scenarios are documented in [Use cases](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/USE-CASES.md), including
 operations reports, incident reviews, multi-dashboard bundles, enterprise
 PKI, and GitOps deployments.
 
@@ -140,8 +140,8 @@ Grafana deployment. Never commit the service-account token.
 - The service-account token is read from `secureJsonData` and is never written
   to plugin logs.
 
-See the [enterprise deployment guide](docs/DEPLOYMENT-ENTERPRISE.md) for a
-conservative production baseline and [SECURITY.md](SECURITY.md) for reporting
+See the [enterprise deployment guide](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/DEPLOYMENT-ENTERPRISE.md) for a
+conservative production baseline and [SECURITY.md](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/SECURITY.md) for reporting
 vulnerabilities.
 
 ## Troubleshooting
@@ -197,7 +197,7 @@ Run backend checks with `go test ./...`, `go vet ./...`, and
 `govulncheck ./...` using Go 1.26.7 or newer. Tag releases with semver (`v0.2.0`, for example); CI
 builds and validates tagged distributions.
 
-The [public-release checklist](docs/PUBLICATION.md) covers repository review,
+The [public-release checklist](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/PUBLICATION.md) covers repository review,
 signing, validation, release tagging, and post-publication verification.
 
 ## License
