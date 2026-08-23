@@ -81,7 +81,7 @@ allow_loading_unsigned_plugins = vincentgourbin-pdfreporter-app
 
 Restart Grafana after installing the plugin. Production deployments should
 use a catalog/community signature or a private signature; do not enable
-unsigned loading broadly. See the [private signing guide](docs/PRIVATE-SIGNING.md)
+unsigned loading broadly. See the [private signing guide](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/PRIVATE-SIGNING.md)
 for the step-by-step process to sign and deploy internally, ahead of (or
 instead of) a public Catalog listing.
 
@@ -205,7 +205,7 @@ signing, validation, release tagging, and post-publication verification.
 ## Testing this plugin
 
 A disposable Docker environment with sample dashboards is available for
-evaluation and review — see [docs/TESTING.md](docs/TESTING.md).
+evaluation and review — see [docs/TESTING.md](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/TESTING.md).
 
 ## License
 
