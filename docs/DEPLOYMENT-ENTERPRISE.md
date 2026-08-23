@@ -70,7 +70,9 @@ retention.
 ## Installation and verification
 
 1. Install the signed plugin archive into the Grafana plugin directory or
-   through the Grafana Catalog when available.
+   through the Grafana Catalog when available. See the
+   [private signing guide](PRIVATE-SIGNING.md) to produce a signed archive
+   bound to this organization's Grafana root URLs.
 2. Restart Grafana and verify the plugin signature is accepted.
 3. Configure the app instance with the service-account token and TLS settings.
 4. Open the app as a Viewer and export a dashboard that the service account

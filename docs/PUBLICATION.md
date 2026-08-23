@@ -3,6 +3,12 @@
 This checklist is intended for the repository maintainer before making the
 project public and publishing a release.
 
+This covers the path to a Community-signed, Catalog-listed release, which
+requires a prior review by the Grafana team (see "Signing and release"
+below). An organization that wants to deploy internally without waiting for
+that review should use the [private signing guide](PRIVATE-SIGNING.md)
+instead; it does not require a Grafana review.
+
 ## Repository visibility
 
 - [ ] Confirm the GitHub repository name and owner.
@@ -41,7 +47,10 @@ project public and publishing a release.
 
 - [ ] Create or verify the Grafana developer/catalog account used to publish
       the plugin ID.
-- [ ] Sign the plugin using the intended Grafana signing mode and root URLs.
+- [ ] Submit the plugin for Grafana review and obtain the assigned Community
+      signature level before signing (public submission happens before
+      signing, not after — see https://grafana.com/developers/plugin-tools/publish-a-plugin/publish-a-plugin).
+- [ ] Sign the plugin using the assigned Grafana signing mode and root URLs.
 - [ ] Confirm the signed archive does not include tokens or local build files.
 - [ ] Create the annotated tag (`v0.2.0` for the first public release).
 - [ ] Push the tag only after the final archive has passed validation.
