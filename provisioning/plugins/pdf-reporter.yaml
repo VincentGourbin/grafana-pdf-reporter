@@ -1,0 +1,10 @@
+apiVersion: 1
+
+apps:
+  - type: vincentgourbin-pdfreporter-app
+    org_id: 1
+    disabled: false
+    jsonData:
+      grafanaURL: http://grafana:3000
+      minRole: Viewer
+      tlsSkipVerify: false

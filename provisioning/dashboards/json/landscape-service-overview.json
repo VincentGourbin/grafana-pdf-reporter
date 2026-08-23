@@ -1,0 +1,12 @@
+{
+  "id": null, "uid": "pdfrep-sample-landscape", "title": "PDF Reporter Sample — Service Overview (Landscape)",
+  "description": "Wide dashboard (5 panels, maxY=16) — demonstrates the plugin's automatic landscape orientation.",
+  "tags": ["pdf-reporter-sample"], "timezone": "browser", "schemaVersion": 39, "version": 1, "refresh": "", "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    { "type": "timeseries", "title": "Request rate", "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Error rate", "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "stat", "title": "Latency p99", "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "gauge", "title": "Availability", "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": { "min": 0, "max": 100 }, "overrides": [] }, "options": {} },
+    { "type": "stat", "title": "Active alerts", "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} }
+  ]
+}

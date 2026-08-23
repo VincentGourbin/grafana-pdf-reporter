@@ -1,0 +1,36 @@
+services:
+  grafana:
+    image: grafana/grafana:13.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: vincentgourbin-pdfreporter-app
+      GF_RENDERING_SERVER_URL: http://renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_RENDERING_RENDERER_TOKEN: reviewer-test-token
+    volumes:
+      - ./dist:/var/lib/grafana/plugins/vincentgourbin-pdfreporter-app:ro
+      - ./provisioning:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      - renderer
+
+  renderer:
+    image: grafana/grafana-image-renderer:latest
+    environment:
+      AUTH_TOKEN: reviewer-test-token
+
+  bootstrap:
+    image: alpine:3.20
+    depends_on:
+      grafana:
+        condition: service_healthy
+    volumes:
+      - ./scripts/bootstrap-test-env.sh:/bootstrap.sh:ro
+    entrypoint: ["sh", "-c", "apk add --no-cache curl jq >/dev/null 2>&1 && sh /bootstrap.sh"]

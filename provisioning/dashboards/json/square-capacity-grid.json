@@ -1,0 +1,15 @@
+{
+  "id": null, "uid": "pdfrep-sample-square", "title": "PDF Reporter Sample — Capacity Grid (Square)",
+  "description": "Stacked dashboard (8 panels, maxY=64) — demonstrates the plugin's automatic square orientation.",
+  "tags": ["pdf-reporter-sample"], "timezone": "browser", "schemaVersion": 39, "version": 1, "refresh": "", "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    { "type": "timeseries", "title": "CPU — pool 1", "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "CPU — pool 2", "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Memory — pool 1", "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Memory — pool 2", "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Disk I/O", "gridPos": { "x": 0, "y": 32, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Network in/out", "gridPos": { "x": 0, "y": 40, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Queue depth", "gridPos": { "x": 0, "y": 48, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} },
+    { "type": "timeseries", "title": "Node count", "gridPos": { "x": 0, "y": 56, "w": 24, "h": 8 }, "datasource": { "type": "grafana-testdata-datasource", "uid": "testdata" }, "targets": [{ "scenarioId": "random_walk", "refId": "A" }], "fieldConfig": { "defaults": {}, "overrides": [] }, "options": {} }
+  ]
+}

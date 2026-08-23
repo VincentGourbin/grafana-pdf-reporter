@@ -97,7 +97,7 @@ Configure the app instance as Grafana Admin. Sensitive values belong in
 | `minRole` | `jsonData` | Minimum caller role: `Viewer` (default), `Editor`, or `Admin`. |
 | `tlsSkipVerify` | `jsonData` | Default `false`; set `true` only for explicitly accepted self-signed certificates. |
 | `tlsCACert` | `jsonData` | Optional PEM CA certificate for private enterprise PKI. |
-| `viewportWidth` / `viewportHeight` | `jsonData` | Optional renderer viewport overrides. |
+| `viewportWidth` | `jsonData` | Optional render width override (advanced; the render height always auto-fits the dashboard's actual content). |
 | `renderTimeoutSec` | `jsonData` | Optional render timeout. |
 | `deviceScaleFactor` | `jsonData` | Optional image scale; higher values use more memory. |
 | `coverBrandTitle` / `coverBrandSubtitle` | `jsonData` | Cover branding text. |
@@ -201,6 +201,11 @@ builds and validates tagged distributions.
 
 The [public-release checklist](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/PUBLICATION.md) covers repository review,
 signing, validation, release tagging, and post-publication verification.
+
+## Testing this plugin
+
+A disposable Docker environment with sample dashboards is available for
+evaluation and review — see [docs/TESTING.md](docs/TESTING.md).
 
 ## License
 
