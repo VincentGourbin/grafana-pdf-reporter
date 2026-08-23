@@ -5,6 +5,7 @@ node_modules/
 
 # Internal implementation notes; do not publish operational host details.
 PLAN-IMPLEMENTATION.md
+PLAN-SAMPLE-DASHBOARDS.md
 
 # Go
 *.exe
