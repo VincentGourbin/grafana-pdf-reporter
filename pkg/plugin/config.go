@@ -18,8 +18,7 @@ type Settings struct {
 	MinRole        string // rôle Grafana minimal autorisé à exporter
 	TLSSkipVerify  bool   // uniquement pour les certificats self-signed explicitement assumés
 	TLSCACert      string // certificat(s) CA PEM non secret
-	ViewportWidth  int
-	ViewportHeight int
+	ViewportWidth  int    // override optionnel de la largeur de rendu (0 = largeur de la stratégie)
 	RenderTimeout  time.Duration
 	// DeviceScaleFactor : facteur de résolution passé à image-renderer.
 	// Quadratique en mémoire (2.0 = 4× pixels vs 1.0). Défaut 1.5 pour borner
@@ -58,8 +57,6 @@ func DefaultSettings() Settings {
 	return Settings{
 		GrafanaURL:         "http://localhost:3000",
 		MinRole:            "Viewer",
-		ViewportWidth:      1280,
-		ViewportHeight:     3000,
 		RenderTimeout:      60 * time.Second,
 		DeviceScaleFactor:  1.5,
 		CoverBrandTitle:    "Grafana",
@@ -87,7 +84,6 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 			TLSSkipVerify          bool    `json:"tlsSkipVerify"`
 			TLSCACert              string  `json:"tlsCACert"`
 			ViewportWidth          int     `json:"viewportWidth"`
-			ViewportHeight         int     `json:"viewportHeight"`
 			DeviceScaleFactor      float64 `json:"deviceScaleFactor"`
 			RenderTimeoutSec       int     `json:"renderTimeoutSec"`
 			CoverBrandTitle        string  `json:"coverBrandTitle"`
@@ -108,7 +104,6 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 		s.TLSSkipVerify = j.TLSSkipVerify
 		s.TLSCACert = j.TLSCACert
 		ifSetInt(&s.ViewportWidth, j.ViewportWidth)
-		ifSetInt(&s.ViewportHeight, j.ViewportHeight)
 		if j.DeviceScaleFactor > 0 {
 			s.DeviceScaleFactor = j.DeviceScaleFactor
 		}

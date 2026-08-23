@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Dashboard rendering now auto-fits the actual content height
+  (`height=-1&fullPageImage=true`, the same parameters as Grafana's native
+  "Export as image") instead of a fixed viewport height per layout strategy.
+  Any dashboard whose content exceeded the previous fixed height (1080px
+  landscape / 1200px square / 2400px portrait) was silently cropped in the
+  exported PDF, with no error. Found while building the reviewer sample
+  dashboards: an 8-panel "square" dashboard was truncated to 4 panels.
+- The `viewportWidth` setting (`jsonData`) is now actually applied as a
+  render-width override; it was decoded but never used. The corresponding
+  `viewportHeight` setting is removed — it was equally unused, and height is
+  now always automatic.
+
 ## [0.2.0] - 2026-08-22
 
 ### Added

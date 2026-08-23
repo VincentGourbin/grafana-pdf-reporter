@@ -31,9 +31,12 @@ func renderOneSection(ctx context.Context, client *http.Client, settings Setting
 		return nil, fmt.Errorf("grafana meta %s: %w", uid, err)
 	}
 	strat := resolveStrategy(strategyOverride, meta.Aspect)
+	viewportW := strat.ViewportWidth
+	if settings.ViewportWidth > 0 {
+		viewportW = settings.ViewportWidth
+	}
 	t0 := time.Now()
-	png, err := renderDashboardPNG(ctx, client, settings, uid, from, to, theme, tz,
-		strat.ViewportWidth, strat.ViewportHeight)
+	png, err := renderDashboardPNG(ctx, client, settings, uid, from, to, theme, tz, viewportW)
 	if err != nil {
 		return nil, fmt.Errorf("render %s: %w", uid, err)
 	}

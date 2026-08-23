@@ -132,7 +132,15 @@ func fetchDashboardMeta(ctx context.Context, client *http.Client, s Settings, ui
 // son endpoint natif /render/d/<uid>. Grafana gère l'authentification du
 // renderer distant configuré dans [rendering] ; le plugin n'a donc pas à
 // connaître l'URL ni le secret du renderer.
-func renderDashboardPNG(ctx context.Context, client *http.Client, s Settings, uid, from, to, theme, tz string, viewportW, viewportH int) ([]byte, error) {
+//
+// height=-1 + fullPageImage=true (les mêmes paramètres que le bouton natif
+// "Export as image" de Grafana) font capturer la hauteur RÉELLE du contenu
+// du dashboard, quel que soit son nombre de panels. Une hauteur de viewport
+// fixe par stratégie tronquait silencieusement tout dashboard dont le
+// contenu dépassait cette hauteur (vérifié : un dashboard "square" de 8
+// panels empilés était coupé aux 4 premiers avec une hauteur fixe de 1200px,
+// capturé en entier avec l'auto-hauteur).
+func renderDashboardPNG(ctx context.Context, client *http.Client, s Settings, uid, from, to, theme, tz string, viewportW int) ([]byte, error) {
 	dsf := s.DeviceScaleFactor
 	if dsf <= 0 {
 		dsf = 1.5
@@ -146,7 +154,8 @@ func renderDashboardPNG(ctx context.Context, client *http.Client, s Settings, ui
 		"_dash.hideTimePicker": {"true"},
 		"_dash.hideVariables":  {"true"},
 		"width":                {strconv.Itoa(viewportW)},
-		"height":               {strconv.Itoa(viewportH)},
+		"height":               {"-1"},
+		"fullPageImage":        {"true"},
 		"scale":                {strconv.FormatFloat(dsf, 'f', -1, 64)},
 		"timeout":              {strconv.Itoa(int(s.RenderTimeout.Seconds()))},
 	}
