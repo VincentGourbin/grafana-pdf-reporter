@@ -23,7 +23,7 @@ import (
 // La vérification est stricte par défaut. Le contournement self-signed est
 // explicite, borné à cette connexion et signalé dans les logs.
 func newHTTPClient(s Settings, logger log.Logger) *http.Client {
-	tlsCfg := &tls.Config{}
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if s.TLSSkipVerify {
 		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- option explicite d'administration
 		logger.Warn("TLS verification disabled (tlsSkipVerify=true)")
