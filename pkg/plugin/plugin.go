@@ -13,6 +13,7 @@ package plugin
 import (
 	"context"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
@@ -28,7 +29,15 @@ type App struct {
 }
 
 // NewApp est appelé par le SDK pour instancier l'app.
-func NewApp(_ context.Context, _ backend.AppInstanceSettings) (instancemgmt.Instance, error) {
+func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemgmt.Instance, error) {
+	s, err := settingsFromInstance(settings)
+	if err != nil {
+		return nil, err
+	}
+	if s.MemLimitMiB > 0 {
+		debug.SetMemoryLimit(int64(s.MemLimitMiB) << 20)
+		log.DefaultLogger.Info("Go memory limit set from plugin settings", "mib", s.MemLimitMiB)
+	}
 	a := &App{logger: log.DefaultLogger, renderSem: make(chan struct{}, 2)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/generate", a.handleGenerate)

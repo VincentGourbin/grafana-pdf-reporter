@@ -98,6 +98,7 @@ Configure the app instance as Grafana Admin. Sensitive values belong in
 | `tlsSkipVerify` | `jsonData` | Default `false`; set `true` only for explicitly accepted self-signed certificates. |
 | `tlsCACert` | `jsonData` | Optional PEM CA certificate for private enterprise PKI. |
 | `viewportWidth` | `jsonData` | Optional render width override (advanced; the render height always auto-fits the dashboard's actual content). |
+| `memLimitMiB` | `jsonData` | Optional Go heap limit in MiB for this plugin instance; `0` keeps the default. |
 | `renderTimeoutSec` | `jsonData` | Optional render timeout. |
 | `deviceScaleFactor` | `jsonData` | Optional image scale; higher values use more memory. |
 | `coverBrandTitle` / `coverBrandSubtitle` | `jsonData` | Cover branding text. |
@@ -178,21 +179,23 @@ landscape orientation.
 
 ## Development and build
 
-The build is Dockerized and produces Linux arm64/amd64, Darwin arm64, and
-Windows amd64 backend binaries:
+Install dependencies and start the standard Grafana development build with:
 
 ```bash
-make all
-make backend
-make frontend
-make clean
+npm install
+npm run dev
+docker compose up
 ```
 
-The local frontend harness is available without Grafana:
+The build produces Linux arm64/amd64, Darwin arm64, and Windows amd64 backend
+binaries:
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1
-open http://127.0.0.1:8765/dev/
+npm run build
+mage -v buildAll
+make backend
+npm run lint
+npm run typecheck
 ```
 
 Run backend checks with `go test ./...`, `go vet ./...`, and

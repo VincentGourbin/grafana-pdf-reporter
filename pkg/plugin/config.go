@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 )
 
@@ -19,6 +20,7 @@ type Settings struct {
 	TLSSkipVerify  bool   // uniquement pour les certificats self-signed explicitement assumés
 	TLSCACert      string // certificat(s) CA PEM non secret
 	ViewportWidth  int    // override optionnel de la largeur de rendu (0 = largeur de la stratégie)
+	MemLimitMiB    int    // limite mémoire Go par instance (0 = défaut du runtime)
 	RenderTimeout  time.Duration
 	// DeviceScaleFactor : facteur de résolution passé à image-renderer.
 	// Quadratique en mémoire (2.0 = 4× pixels vs 1.0). Défaut 1.5 pour borner
@@ -67,62 +69,78 @@ func DefaultSettings() Settings {
 	}
 }
 
-// settingsFromContext lit les Settings depuis le PluginContext de la request.
-// Cf. handler.go : on appelle ça AU MOMENT du traitement de chaque request.
-func settingsFromContext(ctx context.Context) (Settings, error) {
+type settingsJSON struct {
+	GrafanaURL             string  `json:"grafanaURL"`
+	MinRole                string  `json:"minRole"`
+	TLSSkipVerify          bool    `json:"tlsSkipVerify"`
+	TLSCACert              string  `json:"tlsCACert"`
+	ViewportWidth          int     `json:"viewportWidth"`
+	MemLimitMiB            int     `json:"memLimitMiB"`
+	DeviceScaleFactor      float64 `json:"deviceScaleFactor"`
+	RenderTimeoutSec       int     `json:"renderTimeoutSec"`
+	CoverBrandTitle        string  `json:"coverBrandTitle"`
+	CoverBrandSubtitle     string  `json:"coverBrandSubtitle"`
+	CoverFooterLeft        string  `json:"coverFooterLeft"`
+	CoverFooterRight       string  `json:"coverFooterRight"`
+	CoverAccentHex         string  `json:"coverAccentHex"`
+	CoverLogoDataURL       string  `json:"coverLogoDataURL"`
+	CoverBackgroundDataURL string  `json:"coverBackgroundDataURL"`
+}
+
+func settingsFromJSON(raw []byte) (Settings, error) {
 	s := DefaultSettings()
-	pCtx := httpadapter.PluginConfigFromContext(ctx)
-	// AppInstanceSettings est nil tant que le plugin n'a pas été enabled+settings push.
-	if pCtx.AppInstanceSettings == nil {
+	if len(raw) == 0 {
 		return s, nil
 	}
 
-	if raw := pCtx.AppInstanceSettings.JSONData; len(raw) > 0 {
-		var j struct {
-			GrafanaURL             string  `json:"grafanaURL"`
-			MinRole                string  `json:"minRole"`
-			TLSSkipVerify          bool    `json:"tlsSkipVerify"`
-			TLSCACert              string  `json:"tlsCACert"`
-			ViewportWidth          int     `json:"viewportWidth"`
-			DeviceScaleFactor      float64 `json:"deviceScaleFactor"`
-			RenderTimeoutSec       int     `json:"renderTimeoutSec"`
-			CoverBrandTitle        string  `json:"coverBrandTitle"`
-			CoverBrandSubtitle     string  `json:"coverBrandSubtitle"`
-			CoverFooterLeft        string  `json:"coverFooterLeft"`
-			CoverFooterRight       string  `json:"coverFooterRight"`
-			CoverAccentHex         string  `json:"coverAccentHex"`
-			CoverLogoDataURL       string  `json:"coverLogoDataURL"`
-			CoverBackgroundDataURL string  `json:"coverBackgroundDataURL"`
-		}
-		if err := json.Unmarshal(raw, &j); err != nil {
-			return s, fmt.Errorf("decode JSONData: %w", err)
-		}
-		ifSetStr(&s.GrafanaURL, j.GrafanaURL)
-		if j.MinRole == "Viewer" || j.MinRole == "Editor" || j.MinRole == "Admin" {
-			s.MinRole = j.MinRole
-		}
-		s.TLSSkipVerify = j.TLSSkipVerify
-		s.TLSCACert = j.TLSCACert
-		ifSetInt(&s.ViewportWidth, j.ViewportWidth)
-		if j.DeviceScaleFactor > 0 {
-			s.DeviceScaleFactor = j.DeviceScaleFactor
-		}
-		if j.RenderTimeoutSec > 0 {
-			s.RenderTimeout = time.Duration(j.RenderTimeoutSec) * time.Second
-		}
-		ifSetStr(&s.CoverBrandTitle, j.CoverBrandTitle)
-		ifSetStr(&s.CoverBrandSubtitle, j.CoverBrandSubtitle)
-		ifSetStr(&s.CoverFooterLeft, j.CoverFooterLeft)
-		ifSetStr(&s.CoverFooterRight, j.CoverFooterRight)
-		ifSetStr(&s.CoverAccentHex, j.CoverAccentHex)
-		// Logo et background acceptent "" comme "rien" (défaut vide), pas
-		// besoin de garde — affectation directe.
-		s.CoverLogoDataURL = j.CoverLogoDataURL
-		s.CoverBackgroundDataURL = j.CoverBackgroundDataURL
+	var j settingsJSON
+	if err := json.Unmarshal(raw, &j); err != nil {
+		return s, fmt.Errorf("decode JSONData: %w", err)
 	}
+	ifSetStr(&s.GrafanaURL, j.GrafanaURL)
+	if j.MinRole == "Viewer" || j.MinRole == "Editor" || j.MinRole == "Admin" {
+		s.MinRole = j.MinRole
+	}
+	s.TLSSkipVerify = j.TLSSkipVerify
+	s.TLSCACert = j.TLSCACert
+	ifSetInt(&s.ViewportWidth, j.ViewportWidth)
+	ifSetInt(&s.MemLimitMiB, j.MemLimitMiB)
+	if j.DeviceScaleFactor > 0 {
+		s.DeviceScaleFactor = j.DeviceScaleFactor
+	}
+	if j.RenderTimeoutSec > 0 {
+		s.RenderTimeout = time.Duration(j.RenderTimeoutSec) * time.Second
+	}
+	ifSetStr(&s.CoverBrandTitle, j.CoverBrandTitle)
+	ifSetStr(&s.CoverBrandSubtitle, j.CoverBrandSubtitle)
+	ifSetStr(&s.CoverFooterLeft, j.CoverFooterLeft)
+	ifSetStr(&s.CoverFooterRight, j.CoverFooterRight)
+	ifSetStr(&s.CoverAccentHex, j.CoverAccentHex)
+	// Logo et background acceptent "" comme "rien" (défaut vide), pas
+	// besoin de garde — affectation directe.
+	s.CoverLogoDataURL = j.CoverLogoDataURL
+	s.CoverBackgroundDataURL = j.CoverBackgroundDataURL
+	return s, nil
+}
 
-	if secure := pCtx.AppInstanceSettings.DecryptedSecureJSONData; secure != nil {
+func settingsFromInstance(is backend.AppInstanceSettings) (Settings, error) {
+	s, err := settingsFromJSON(is.JSONData)
+	if err != nil {
+		return s, err
+	}
+	if secure := is.DecryptedSecureJSONData; secure != nil {
 		s.GrafanaSAToken = secure["grafanaSAToken"]
 	}
 	return s, nil
+}
+
+// settingsFromContext lit les Settings depuis le PluginContext de la request.
+// Cf. handler.go : on appelle ça AU MOMENT du traitement de chaque request.
+func settingsFromContext(ctx context.Context) (Settings, error) {
+	pCtx := httpadapter.PluginConfigFromContext(ctx)
+	// AppInstanceSettings est nil tant que le plugin n'a pas été enabled+settings push.
+	if pCtx.AppInstanceSettings == nil {
+		return DefaultSettings(), nil
+	}
+	return settingsFromInstance(*pCtx.AppInstanceSettings)
 }

@@ -2,9 +2,9 @@
 package main
 
 import (
+	"math"
 	"os"
 	"runtime/debug"
-	"strconv"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/app"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -18,20 +18,16 @@ import (
 // système paresseusement → la RSS monte par paliers report après report
 // jusqu'à l'OOM. Avec une limite, le GC devient agressif et la RSS reste bornée.
 //
-// Priorité : GOMEMLIMIT (honoré nativement par le runtime) > variable
-// PDFREPORTER_MEM_LIMIT_MIB > défaut prudent 384 MiB.
+// GOMEMLIMIT est honoré nativement par le runtime et reste prioritaire sur
+// le défaut prudent de 384 MiB. Une valeur jsonData.memLimitMiB peut ensuite
+// remplacer ce défaut au niveau d'une instance du plugin.
 func applyMemoryLimit() {
-	if os.Getenv("GOMEMLIMIT") != "" {
-		return // déjà fixé via l'env : le runtime l'applique seul.
+	if debug.SetMemoryLimit(-1) != math.MaxInt64 {
+		return // limite déjà fixée (GOMEMLIMIT) : on ne touche à rien.
 	}
-	limitMiB := 384
-	if v := os.Getenv("PDFREPORTER_MEM_LIMIT_MIB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limitMiB = n
-		}
-	}
-	debug.SetMemoryLimit(int64(limitMiB) << 20)
-	log.DefaultLogger.Info("Go memory limit set", "mib", limitMiB)
+	const defaultMemLimitMiB = 384
+	debug.SetMemoryLimit(int64(defaultMemLimitMiB) << 20)
+	log.DefaultLogger.Info("Go memory limit set", "mib", defaultMemLimitMiB)
 }
 
 func main() {
