@@ -17,3 +17,10 @@ PLAN-SAMPLE-DASHBOARDS.md
 .idea/
 .vscode/
 *.swp
+
+# Tooling reports
+.eslintcache
+coverage/
+/test-results/
+/playwright-report/
+release/

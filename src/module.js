@@ -8,13 +8,10 @@
 // Toutes les chaînes UI sont externalisées dans STRINGS (fr/en),
 // langue auto-détectée via navigator.language.
 
-define([
-  "react",
-  "@grafana/data",
-  "@grafana/ui",
-  "@grafana/runtime",
-], function (React, gData, gUI, gRT) {
-  "use strict";
+import React from "react";
+import * as gData from "@grafana/data";
+import * as gUI from "@grafana/ui";
+import * as gRT from "@grafana/runtime";
 
   var AppPlugin = gData.AppPlugin;
   var dateTime = gData.dateTime;
@@ -1501,5 +1498,4 @@ define([
       },
     });
 
-  return { plugin: plugin };
-});
+export { plugin };
