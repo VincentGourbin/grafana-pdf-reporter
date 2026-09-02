@@ -39,11 +39,13 @@ instead; it does not require a Grafana review.
       test` passes vacuously; consider adding coverage for `strategy.go` and
       `render.go`'s query-building logic)
 - [x] Run `govulncheck ./...`. (clean, run in CI on every push/tag)
-- [x] Run `node --check src/module.amd.js`. (clean, run in CI)
-- [x] Run `make all VERSION=x.y.z`.
-- [x] Validate the complete ZIP archive with Grafana's plugin validator.
-      (clean on v0.2.1: 0 errors, 2 expected warnings — unsigned plugin,
-      optional sponsorship-link recommendation)
+- [ ] Run `npm run lint`, `npm run typecheck`, and `npm run build` for the
+      standard frontend build.
+- [ ] Run `npm ci`, `npm run typecheck`, `npm run lint`, and `npm run build`.
+- [ ] Run `mage -v buildAll` and verify the four required backend artifacts.
+- [ ] Validate the complete v0.2.2 ZIP archive with Grafana's plugin
+      validator. Expected warnings: unsigned plugin and optional
+      sponsorship-link recommendation.
 - [x] Test the release against the supported Grafana versions and the
       configured renderer. (12.4.2 and 13.1.0, end-to-end PDF export
       verified visually on both)

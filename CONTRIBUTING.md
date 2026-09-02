@@ -2,18 +2,21 @@
 
 ## Development setup
 
-The project uses Dockerized build targets. Run:
+The standard frontend tooling uses Node 22 or newer. For local development,
+run:
 
 ```bash
-make all VERSION=dev
+npm install
+npm run dev
+docker compose up
 ```
 
 Before opening a pull request, run:
 
 ```bash
-go test ./...
-go vet ./...
-node --check src/module.amd.js
+npm run lint
+npm run typecheck
+npm run build
 git diff --check
 ```
 

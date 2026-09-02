@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.2] - 2026-09-02
+
+### Changed
+
+- Migrated the frontend and backend builds to Grafana's standard
+  `@grafana/create-plugin` and Mage tooling.
+- Frontend source maps are now included in the plugin archive for validator
+  and source inspection.
+
+### Fixed
+
+- Enforced TLS 1.2 as the minimum TLS version for backend requests.
+- Removed direct environment-variable configuration for memory limits;
+  `GOMEMLIMIT` remains honored by the Go runtime and `memLimitMiB` is now
+  configurable in plugin `jsonData`.
+
 ## [0.2.1] - 2026-08-23
 
 ### Fixed
