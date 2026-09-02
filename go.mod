@@ -1,6 +1,6 @@
 module github.com/VincentGourbin/grafana-pdf-reporter
 
-go 1.26.7
+go 1.26.5
 
 require (
 	github.com/go-pdf/fpdf v0.9.0

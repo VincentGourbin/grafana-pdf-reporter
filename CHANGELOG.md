@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.3] - 2026-09-02
+
+### Fixed
+
+- Lowered the `go.mod` language directive to 1.26.5 (the SDK minimum) so the
+  Grafana plugin validator's bundled `govulncheck` (Go 1.26.6) can scan the
+  module. No functional change.
+
 ## [0.2.2] - 2026-09-02
 
 ### Changed
