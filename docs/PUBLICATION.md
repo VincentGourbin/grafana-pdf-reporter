@@ -39,13 +39,18 @@ instead; it does not require a Grafana review.
       test` passes vacuously; consider adding coverage for `strategy.go` and
       `render.go`'s query-building logic)
 - [x] Run `govulncheck ./...`. (clean, run in CI on every push/tag)
-- [ ] Run `npm run lint`, `npm run typecheck`, and `npm run build` for the
-      standard frontend build.
-- [ ] Run `npm ci`, `npm run typecheck`, `npm run lint`, and `npm run build`.
-- [ ] Run `mage -v buildAll` and verify the four required backend artifacts.
-- [ ] Validate the complete v0.2.2 ZIP archive with Grafana's plugin
-      validator. Expected warnings: unsigned plugin and optional
-      sponsorship-link recommendation.
+- [x] Run `npm ci`, `npm run typecheck`, `npm run lint`, and `npm run build`
+      with the standard `@grafana/create-plugin` tooling. (run in CI on every
+      push/tag since v0.2.2)
+- [x] Run `mage -v buildAll` and verify the required backend artifacts plus
+      `go_plugin_build_manifest`. (run in CI; 6 binaries in the v0.2.3 zip)
+- [x] Validate the complete v0.2.3 ZIP archive with Grafana's plugin
+      validator, using the official `grafana/plugin-validator-cli` Docker
+      image with `-sourceCodeUri …/tree/v0.2.3` and the GitHub release zip.
+      (2026-09-02: 0 errors; only the expected unsigned-plugin warning and
+      sponsorship-link recommendation remain. Note: the validator image ships
+      Go 1.26.6 with `GOTOOLCHAIN=local`, so the `go.mod` directive must stay
+      at or below that version or `govulncheck` fails.)
 - [x] Test the release against the supported Grafana versions and the
       configured renderer. (12.4.2 and 13.1.0, end-to-end PDF export
       verified visually on both)
@@ -60,8 +65,12 @@ instead; it does not require a Grafana review.
 - [x] Submit the plugin for Grafana review and obtain the assigned Community
       signature level before signing (public submission happens before
       signing, not after — see https://grafana.com/developers/plugin-tools/publish-a-plugin/publish-a-plugin).
-      **Submitted 2026-08-23** (v0.2.1). Awaiting Grafana's automated +
-      manual review; they assign a Community signature level once approved.
+      **Submitted 2026-08-23** (v0.2.1). Review ticket #241427 returned
+      5 errors + 3 warnings (version mismatch, non-standard build tooling,
+      missing Go manifest, missing source map, gosec G402, env var access);
+      all fixed in v0.2.2/v0.2.3. **Re-submission with v0.2.3 pending**
+      (update the submission's zip + source URL with the tag, reply to the
+      ticket). They assign a Community signature level once approved.
 - [ ] Sign the plugin using the assigned Grafana signing mode and root URLs.
       (blocked on review outcome above — Community signing does not use
       `ROOT_URLS`/`make sign` the way private signing does; confirm the
@@ -69,7 +78,8 @@ instead; it does not require a Grafana review.
 - [ ] Confirm the signed archive does not include tokens or local build files.
 - [x] Create the annotated tag (`v0.2.1`, moved once after an initial CI
       validator failure on relative README links — no release had been
-      published under the failed tag, so moving it was safe).
+      published under the failed tag, so moving it was safe). `v0.2.2` and
+      `v0.2.3` tagged 2026-09-02 for the review fixes.
 - [x] Push the tag only after the final archive has passed validation.
 - [ ] Publish release notes with migration instructions from 0.1.x.
 - [ ] Announce the known Grafana 12.4.2 time-picker rendering limitation.
