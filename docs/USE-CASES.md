@@ -10,8 +10,8 @@ latency, error rate, and capacity dashboards.
 
 Recommended setup:
 
-- create a dedicated service account;
-- grant it read/render access only to the report dashboards;
+- configure the plugin account described in the README;
+- give the people who export reports access to the report dashboards;
 - keep `minRole: Viewer` unless the Grafana deployment requires a stricter
   boundary;
 - use the same `from` and `to` expressions as the operational runbook;
@@ -59,7 +59,7 @@ A service owner wants one document covering application health, infrastructure
 capacity, logs-derived signals, and SLOs.
 
 The app supports selecting multiple dashboards and concatenates them into one
-PDF. The service account must have access to every selected dashboard. A
+PDF. The person exporting must have access to every selected dashboard. A
 bundle is limited to 25 dashboards and concurrent exports are limited to two
 per app instance to bound resource consumption.
 
@@ -95,15 +95,13 @@ secret substitution to the chosen Grafana deployment method.
 
 PDF Reporter is not a substitute for:
 
-- per-user dashboard authorization inside the generated report;
+- per-panel or per-row authorization inside a dashboard;
 - data masking, anonymization, or redaction;
 - a long-term document-management or evidence-retention system;
-- exporting dashboards that the configured service account cannot access;
+- exporting dashboards that the caller cannot open in Grafana;
 - rendering arbitrary websites or HTML supplied by untrusted users;
 - high-volume batch rendering without capacity planning.
 
-On the tested Grafana 12.4.2 and 13.1.0 versions, Grafana does not forward
-caller cookies or authorization headers to app resource handlers. The plugin
-therefore combines Grafana's authenticated app access, a configurable
-minimum caller role, and a least-privileged service account. This is a
-deployment boundary, not a per-user dashboard ACL mechanism.
+Access is checked per dashboard against the caller's own Grafana permissions.
+The render itself runs as the plugin account, so data-source permissions that
+differ between that account and the caller are not reflected in the PDF.

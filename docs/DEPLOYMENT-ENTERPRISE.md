@@ -8,20 +8,26 @@ compliance with a specific framework.
 
 Confirm:
 
-1. Grafana is version 11.4 or later; 12.4.2 and 13.1.0 are tested.
+1. Grafana is version 12.4.2 or later; 12.4.2 and 13.1.0 are tested.
 2. Native Grafana image rendering works independently of the plugin.
 3. The renderer is configured through Grafana `[rendering]` settings.
-4. A dedicated service account can read and render only the dashboards needed
-   by the reporting use case.
+4. The plugin has an account that can read caller permissions, as described
+   below.
 5. The plugin backend can reach `grafanaURL` over the intended network path.
 6. The deployment has a plan for plugin signature verification and upgrades.
 
-## Recommended service account boundary
+## Recommended plugin account
 
-Create one service account for PDF Reporter. Do not reuse an administrator
-token. Grant the smallest dashboard read/render permissions supported by the
-Grafana deployment. Rotate the token through the secret-management process
-used by the organization.
+The plugin checks each caller's dashboard access, which requires
+`users.permissions:read`. Enable the `externalServiceAccounts` feature toggle and
+set `managed_service_accounts_enabled = true` under `[auth]`, so Grafana
+provisions an account limited to the permissions the plugin declares. This
+feature is in public preview and supports a single organization.
+
+Otherwise, create a dedicated service account with the Org Admin role. On
+Grafana OSS, no lower role holds `users.permissions:read`. This token is an
+administrator credential: do not share it with other tools, and rotate it
+through the secret-management process used by the organization.
 
 The token belongs in Grafana's encrypted `secureJsonData` and must not appear
 in Git, provisioning repositories, logs, screenshots, or issue reports.
@@ -48,10 +54,9 @@ minRole: Viewer
 ```
 
 Use `Editor` or `Admin` only when the deployment genuinely requires it. The
-minimum role protects access to the export operation; the service account
-controls which dashboards are rendered. Because Grafana does not forward the
-caller's credentials to these app resource calls on the tested versions, do
-not describe this as per-user dashboard ACL enforcement.
+minimum role protects access to the export operation. On top of it, the plugin
+confirms that the caller can read every requested dashboard, using the signed
+identity Grafana forwards, and refuses the whole export otherwise.
 
 ## Resource controls
 
@@ -74,12 +79,11 @@ retention.
    [private signing guide](PRIVATE-SIGNING.md) to produce a signed archive
    bound to this organization's Grafana root URLs.
 2. Restart Grafana and verify the plugin signature is accepted.
-3. Configure the app instance with the service-account token and TLS settings.
-4. Open the app as a Viewer and export a dashboard that the service account
-   can read.
+3. Configure the plugin account and TLS settings.
+4. Open the app as a Viewer and export a dashboard that the Viewer can read.
 5. Confirm the generated PDF contains the expected time range and timezone.
 6. Confirm an account below `minRole` receives HTTP 403.
-7. Confirm a dashboard outside the service-account scope fails to render.
+7. Confirm a dashboard the Viewer cannot open returns HTTP 403.
 8. Record plugin version, Grafana version, renderer version, and configuration
    in the deployment record.
 

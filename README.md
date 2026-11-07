@@ -23,8 +23,8 @@ PKI, and GitOps deployments.
 
 ## Requirements
 
-- Grafana OSS **11.4 or later**. Compatibility is tested on Grafana **12.4.2**
-  and **13.1.0**.
+- Grafana OSS **12.4.2 or later**. Compatibility is tested on Grafana
+  **12.4.2** and **13.1.0**.
 - On Grafana 12.4.2, the legacy renderer can retain the time-picker controls
   in the captured dashboard image even when the native hide-time-picker URL
   flag is sent. Grafana 13.1.0 hides those controls as expected; this is an
@@ -33,8 +33,8 @@ PKI, and GitOps deployments.
 - Grafana image rendering must be configured and working. The plugin calls
   Grafana's native `/render/d/<uid>` endpoint and does not contact Chromium or
   the renderer directly.
-- A Grafana service-account token with the minimum required dashboard read and
-  render permissions, stored in `secureJsonData`.
+- An account for the plugin, which needs `users.permissions:read` to check each
+  caller's access. See [Plugin account](#plugin-account).
 
 For a remote renderer configure Grafana `[rendering] server_url`,
 `callback_url`, and a non-default `renderer_token`. Grafana 13.x refuses to
@@ -65,34 +65,32 @@ the deployment is allowed to export.
 Install and enable **PDF Reporter** from Grafana Administration → Plugins,
 then configure the app instance as described below.
 
-### Manual installation
-
-```bash
-make all
-cp -a dist /var/lib/grafana/plugins/vincentgourbin-pdfreporter-app
-```
-
-For local development only, allow the unsigned plugin:
-
-```ini
-[plugins]
-allow_loading_unsigned_plugins = vincentgourbin-pdfreporter-app
-```
-
-Restart Grafana after installing the plugin. Production deployments should
-use a catalog/community signature or a private signature; do not enable
-unsigned loading broadly. See the [private signing guide](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/PRIVATE-SIGNING.md)
-for the step-by-step process to sign and deploy internally, ahead of (or
-instead of) a public Catalog listing.
-
 ## Configuration
 
 Configure the app instance as Grafana Admin. Sensitive values belong in
 `secureJsonData`, which Grafana encrypts in its database.
 
+### Plugin account
+
+The plugin reads dashboards, renders them, and reads the caller's permissions
+with one account. Exports fail with HTTP 502 until that account can read
+permissions. Choose one of the following:
+
+- **Managed account (recommended).** Enable the `externalServiceAccounts`
+  feature toggle and set `managed_service_accounts_enabled = true` under
+  `[auth]`. Grafana then creates an account holding only the permissions declared
+  by the plugin, and `grafanaSAToken` is not needed. This feature is in public
+  preview and supports a single organization.
+- **Org Admin token.** Create a service account with the Admin role and set its
+  token as `grafanaSAToken`. Only an Org Admin holds `users.permissions:read` by
+  default on Grafana OSS, so a Viewer or Editor token is not enough. Treat this
+  token as an administrator credential.
+
+If both are available, the managed account is used.
+
 | Field | Storage | Description |
 |---|---|---|
-| `grafanaSAToken` | `secureJsonData` | Service-account token used for metadata and `/render`; use the minimum required role. |
+| `grafanaSAToken` | `secureJsonData` | Org Admin service-account token; not needed with the managed account. See [Plugin account](#plugin-account). |
 | `grafanaURL` | `jsonData` | Grafana URL reachable from the plugin backend; default `http://localhost:3000`. |
 | `minRole` | `jsonData` | Minimum caller role: `Viewer` (default), `Editor`, or `Admin`. |
 | `tlsSkipVerify` | `jsonData` | Default `false`; set `true` only for explicitly accepted self-signed certificates. |
@@ -127,13 +125,19 @@ Grafana deployment. Never commit the service-account token.
 
 ## Security model
 
-- Grafana authenticates and authorizes access to the app page.
-- Because Grafana 12.4.2 and 13.1.0 do not forward caller credentials to app
-  resource handlers, the plugin cannot perform a per-user dashboard ACL check.
-  It rejects callers below `minRole` and uses the configured service account
-  for the actual dashboard request and render.
-- Create a dedicated service account and grant only the dashboard read/render
-  permissions required by this plugin. Do not reuse an administrator token.
+- Grafana authenticates the caller and forwards a signed identity token to the
+  plugin backend. The plugin verifies its signature against Grafana's public
+  signing keys.
+- Before rendering anything, the plugin confirms the caller holds
+  `dashboards:read` on every requested dashboard, directly or through its folder
+  or a parent folder. If any dashboard is refused, the whole export returns
+  HTTP 403 and nothing is rendered. Unknown dashboards get the same answer.
+- Callers without a signed identity, such as anonymous users, cannot export.
+- `minRole` is an additional gate: callers below it are refused first.
+- The plugin account performs the render, so the PDF shows what that account
+  sees once the caller's access is confirmed. Prefer the
+  [managed account](#plugin-account), which holds fewer permissions than an Org
+  Admin token.
 - TLS verification is strict by default. Use `tlsCACert` for enterprise CAs;
   use `tlsSkipVerify` only as a documented exception for a self-signed setup.
 - At most two complete PDF exports run concurrently. This limits Chromium and
@@ -149,6 +153,13 @@ vulnerabilities.
 
 ## Troubleshooting
 
+- **Export returns HTTP 403**: the caller cannot read one of the selected
+  dashboards, or is below `minRole`. Check the dashboard and folder permissions.
+- **Export returns HTTP 502 with "access check failed"**: the plugin account
+  cannot read permissions. See [Plugin account](#plugin-account); the plugin
+  logs give the exact Grafana answer.
+- **Export fails with "rendered image too large"**: the dashboard exceeds 64
+  million pixels at the current scale. Lower `deviceScaleFactor` or split it.
 - **PDF shows the login page**: configure Grafana native image rendering and
   verify `/render/d/<uid>` works with the service-account token. Remove legacy
   renderer `BROWSER_HEADER` configuration after migrating.
@@ -176,34 +187,6 @@ vulnerabilities.
 The legacy dashboard layout uses `gridPos` for automatic orientation. If a
 future Grafana dashboard-v2 layout omits it, the plugin falls back safely to
 landscape orientation.
-
-## Development and build
-
-Install dependencies and start the standard Grafana development build with:
-
-```bash
-npm install
-npm run dev
-docker compose up
-```
-
-The build produces Linux arm64/amd64, Darwin arm64, and Windows amd64 backend
-binaries:
-
-```bash
-npm run build
-mage -v buildAll
-make backend
-npm run lint
-npm run typecheck
-```
-
-Run backend checks with `go test ./...`, `go vet ./...`, and
-`govulncheck ./...` using Go 1.26.7 or newer. Tag releases with semver (`v0.2.0`, for example); CI
-builds and validates tagged distributions.
-
-The [public-release checklist](https://github.com/VincentGourbin/grafana-pdf-reporter/blob/main/docs/PUBLICATION.md) covers repository review,
-signing, validation, release tagging, and post-publication verification.
 
 ## Testing this plugin
 

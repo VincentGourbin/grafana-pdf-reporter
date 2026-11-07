@@ -29,7 +29,7 @@ report, coordinate a fix, and publish a release note once disclosure is safe.
 
 ## Deployment security expectations
 
-PDF Reporter is not a data-loss-prevention or anonymization product. Use a
-least-privileged service account, encrypted Grafana secure settings, strict
+PDF Reporter is not a data-loss-prevention or anonymization product. Use the
+managed plugin account where possible, encrypted Grafana secure settings, strict
 TLS verification, signed plugin packages, and an appropriate retention policy
 for generated PDFs.
