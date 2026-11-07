@@ -1,6 +1,6 @@
 {
   "name": "grafana-pdf-reporter",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Grafana app plugin: export dashboards to PDF with cover page",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
@@ -73,12 +73,15 @@
     "@grafana/data": "13.1.0",
     "@grafana/i18n": "13.1.0",
     "@grafana/runtime": "13.1.0",
-    "@grafana/ui": "13.1.0",
     "@grafana/schema": "13.1.0",
+    "@grafana/ui": "13.1.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.22.0",
     "rxjs": "7.8.2"
   },
-  "packageManager": "npm@11.19.0"
+  "packageManager": "npm@11.19.0",
+  "overrides": {
+    "basic-ftp": "6.2.6"
+  }
 }
