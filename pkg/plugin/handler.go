@@ -3,6 +3,7 @@ package plugin
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -24,12 +25,8 @@ type sectionResult struct {
 	RenderMs int64
 }
 
-// renderOneSection : meta → strategy → render PNG. Pure.
-func renderOneSection(ctx context.Context, client *http.Client, settings Settings, uid, from, to, theme, tz, strategyOverride string) (*sectionResult, error) {
-	meta, err := fetchDashboardMeta(ctx, client, settings, uid)
-	if err != nil {
-		return nil, fmt.Errorf("grafana meta %s: %w", uid, err)
-	}
+// renderOneSection : strategy → render PNG, pour un dashboard déjà autorisé.
+func renderOneSection(ctx context.Context, client *http.Client, settings Settings, meta DashboardMeta, uid, from, to, theme, tz, strategyOverride string) (*sectionResult, error) {
 	strat := resolveStrategy(strategyOverride, meta.Aspect)
 	viewportW := strat.ViewportWidth
 	if settings.ViewportWidth > 0 {
@@ -156,6 +153,29 @@ func (a *App) generateAndWrite(rw http.ResponseWriter, req *http.Request, p repo
 		http.Error(rw, "plugin not configured: set grafanaSAToken (secureJsonData)", http.StatusServiceUnavailable)
 		return
 	}
+	user, role := callerFromContext(req)
+	if roleRank(role) < roleRank(settings.MinRole) {
+		a.logger.Warn("export denied by minimum role", "user", user, "role", role, "required", settings.MinRole)
+		http.Error(rw, "access denied: insufficient Grafana role", http.StatusForbidden)
+		return
+	}
+	client, err := newHTTPClient(req.Context(), settings, a.logger)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("http client: %v", err), http.StatusInternalServerError)
+		return
+	}
+	metas, err := a.authorize(req, client, settings, user, p.UIDs)
+	if errors.Is(err, errAccessDenied) {
+		a.logger.Warn("export denied", "user", user, "reason", err.Error())
+		http.Error(rw, "access denied: you cannot read one of the requested dashboards", http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		a.logger.Error("access check failed", "user", user, "err", err.Error())
+		http.Error(rw, "access check failed: see the plugin logs", http.StatusBadGateway)
+		return
+	}
+
 	select {
 	case a.renderSem <- struct{}{}:
 		defer func() { <-a.renderSem }()
@@ -166,19 +186,12 @@ func (a *App) generateAndWrite(rw http.ResponseWriter, req *http.Request, p repo
 		return
 	}
 
-	user, role := callerFromContext(req)
-	if roleRank(role) < roleRank(settings.MinRole) {
-		a.logger.Warn("export denied by minimum role", "user", user, "role", role, "required", settings.MinRole)
-		http.Error(rw, "access denied: insufficient Grafana role", http.StatusForbidden)
-		return
-	}
-	client := newHTTPClient(settings, a.logger)
 	t0 := time.Now()
 	pdf := newReportPDF()
 	cov := coverFromSettings(settings)
 
 	for idx, uid := range p.UIDs {
-		sec, err := renderOneSection(req.Context(), client, settings, uid,
+		sec, err := renderOneSection(req.Context(), client, settings, metas[uid], uid,
 			p.From, p.To, p.Theme, p.TZ, p.Strategy)
 		if err != nil {
 			a.logger.Error("section failed", "uid", uid, "err", err.Error())
@@ -218,6 +231,19 @@ func (a *App) generateAndWrite(rw http.ResponseWriter, req *http.Request, p repo
 
 	a.logger.Info("report generated",
 		"count", len(p.UIDs), "bytes", out.Len(), "total_ms", total, "user", user)
+}
+
+// authorize identifies the caller from the signed token Grafana forwards, then
+// checks each dashboard against that identity's own permissions. The service
+// account renders the dashboards, but it never decides who may read them.
+func (a *App) authorize(req *http.Request, client *http.Client, s Settings, login string, uids []string) (map[string]DashboardMeta, error) {
+	ctx := req.Context()
+	orgID := httpadapter.PluginConfigFromContext(ctx).OrgID
+	subject, err := verifyIDToken(ctx, client, s, req.Header.Get(identityHeader), login, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return authorizeExport(ctx, client, s, subject, uids)
 }
 
 // handleGenerate : 1 dashboard via query (?dashboard=<uid>...).
