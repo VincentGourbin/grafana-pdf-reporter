@@ -29,7 +29,7 @@ All notable changes to this project are documented here.
 - `renderTimeoutSec` values above 75 seconds now take effect; the HTTP client
   previously stopped at 90 seconds.
 - Manual build and installation steps moved from the README to `CONTRIBUTING.md`.
-- Updated Go to 1.26.10, the Grafana plugin SDK to 0.298.0, and the dependencies
+- Updated Go to 1.26.11, the Grafana plugin SDK to 0.298.0, and the dependencies
   reported by `govulncheck` and `osv-scanner`.
 
 ## [0.2.3] - 2026-09-02

@@ -35,7 +35,7 @@ make backend
 ```
 
 Run backend checks with `go test ./...`, `go vet ./...`, and
-`govulncheck ./...` using Go 1.26.10 or newer. Tag releases with semver (`v0.2.0`,
+`govulncheck ./...` using Go 1.26.11 or newer. Tag releases with semver (`v0.2.0`,
 for example); CI builds and validates tagged distributions. The
 [public-release checklist](docs/PUBLICATION.md) covers repository review,
 signing, validation, release tagging, and post-publication verification.
