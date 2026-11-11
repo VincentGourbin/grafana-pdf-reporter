@@ -6,8 +6,8 @@
 //   - Route GET /generate?dashboard=<uid>[&from=<ts>&to=<ts>&theme=<dark|light>]
 //     renvoie un PDF complet (cover + dashboard cropped).
 //
-// L'auth est gérée par Grafana avant que la requête n'atteigne le plugin :
-// le user doit être connecté et avoir accès au dashboard.
+// Grafana authentifie l'appelant et transmet son identité signée ; le plugin
+// vérifie ensuite ses droits sur chaque dashboard avant tout rendu (authz.go).
 package plugin
 
 import (

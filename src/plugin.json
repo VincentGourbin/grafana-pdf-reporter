@@ -46,7 +46,7 @@
     "updated": "%TODAY%"
   },
   "dependencies": {
-    "grafanaDependency": ">=11.4.0",
+    "grafanaDependency": ">=12.4.2",
     "plugins": []
   },
   "includes": [
@@ -71,6 +71,17 @@
         "description": "Generate a PDF report of the current dashboard",
         "targets": ["grafana/commandpalette/action"]
       }
+    ]
+  },
+  "iam": {
+    "permissions": [
+      { "action": "dashboards:read", "scope": "dashboards:*" },
+      { "action": "dashboards:read", "scope": "folders:*" },
+      { "action": "folders:read", "scope": "folders:*" },
+      { "action": "datasources:read", "scope": "datasources:*" },
+      { "action": "datasources:query", "scope": "datasources:*" },
+      { "action": "annotations:read", "scope": "annotations:type:*" },
+      { "action": "users.permissions:read", "scope": "users:*" }
     ]
   },
   "backend": true,

@@ -2,10 +2,15 @@ package plugin
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/draw"
 	"image/png"
 )
+
+// maxRenderPixels bounds what gets decoded: at 4 bytes per pixel, 64 million
+// pixels is 256 MiB, or about 22,000 px of height at the default render size.
+const maxRenderPixels = 64_000_000
 
 // cropToContent détecte la bounding box du contenu non-background et crop
 // le PNG sur les 4 côtés. Retourne aussi les dimensions finales pour éviter
@@ -14,6 +19,14 @@ import (
 // Implémentation : un seul passage O(W·H) qui suit min/max simultanément.
 // `image/draw` fait la copie en mémoire optimisée (vs. setpixel loop Go).
 func cropToContent(pngBytes []byte, theme string) (data []byte, dx, dy int, err error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(pngBytes))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > maxRenderPixels {
+		return nil, 0, 0, fmt.Errorf("rendered image too large: %dx%d exceeds %d pixels; lower deviceScaleFactor or split the dashboard",
+			cfg.Width, cfg.Height, maxRenderPixels)
+	}
 	img, err := png.Decode(bytes.NewReader(pngBytes))
 	if err != nil {
 		return nil, 0, 0, err

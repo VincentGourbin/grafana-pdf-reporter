@@ -13,7 +13,7 @@ ROOT_URLS ?=
 # fetches and runs the pinned current toolchain inside the container.
 GO_IMAGE  := golang:1.26
 NODE_IMAGE := node:22
-GO_RUN    := docker run --rm -v "$$PWD:/work" -w /work -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOMODCACHE=/tmp/.gomodcache -e GOTOOLCHAIN=go1.26.7+auto $(GO_IMAGE)
+GO_RUN    := docker run --rm -v "$$PWD:/work" -w /work -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOMODCACHE=/tmp/.gomodcache -e GOTOOLCHAIN=go1.26.11+auto $(GO_IMAGE)
 NODE_RUN  := docker run --rm -v "$$PWD:/work" -w /work -u "$$(id -u):$$(id -g)" -e HOME=/tmp $(NODE_IMAGE)
 # Le signing tool a besoin du token ; on le passe à Docker explicitement
 # (pas via env_file car ça reste un secret local).
@@ -77,4 +77,4 @@ sign:
 	@echo "OK signature dist/MANIFEST.txt généré."
 
 clean:
-	rm -rf dist/ node_modules/.cache .eslintcache
+	rm -rf dist/ release/ node_modules/.cache .eslintcache

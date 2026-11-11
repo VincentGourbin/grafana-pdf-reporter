@@ -1,12 +1,14 @@
 services:
   grafana:
-    image: grafana/grafana:13.1.0
+    image: grafana/grafana:${GRAFANA_VERSION:-13.1.0}
     ports:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: vincentgourbin-pdfreporter-app
+      GF_FEATURE_TOGGLES_ENABLE: ${PDF_REPORTER_FEATURES-externalServiceAccounts}
+      GF_AUTH_MANAGED_SERVICE_ACCOUNTS_ENABLED: "true"
       GF_RENDERING_SERVER_URL: http://renderer:8081/render
       GF_RENDERING_CALLBACK_URL: http://grafana:3000/
       GF_RENDERING_RENDERER_TOKEN: reviewer-test-token
@@ -28,6 +30,8 @@ services:
 
   bootstrap:
     image: alpine:3.20
+    environment:
+      PDF_REPORTER_FEATURES: ${PDF_REPORTER_FEATURES-externalServiceAccounts}
     depends_on:
       grafana:
         condition: service_healthy

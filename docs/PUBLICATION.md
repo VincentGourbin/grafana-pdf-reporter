@@ -71,6 +71,10 @@ instead; it does not require a Grafana review.
       all fixed in v0.2.2/v0.2.3. **Re-submission with v0.2.3 pending**
       (update the submission's zip + source URL with the tag, reply to the
       ticket). They assign a Community signature level once approved.
+      **Second review** required per-user dashboard access and the SDK HTTP
+      client, and suggested three smaller changes; all addressed in v0.3.0.
+      `scripts/e2e-access-control.sh` passed on 12.4.2 and 13.1.0, with both the
+      managed account and an Org Admin token (2026-11-07).
 - [ ] Sign the plugin using the assigned Grafana signing mode and root URLs.
       (blocked on review outcome above — Community signing does not use
       `ROOT_URLS`/`make sign` the way private signing does; confirm the

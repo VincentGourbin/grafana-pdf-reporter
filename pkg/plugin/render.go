@@ -3,8 +3,8 @@ package plugin
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,44 +13,92 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 )
 
 // La config (tokens, URLs) est désormais portée par Settings (cf config.go)
 // et lue depuis le PluginContext de chaque request. Plus de vars de package.
 
-// newHTTPClient construit le client HTTP selon la configuration TLS.
-// La vérification est stricte par défaut. Le contournement self-signed est
-// explicite, borné à cette connexion et signalé dans les logs.
-func newHTTPClient(s Settings, logger log.Logger) *http.Client {
-	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if s.TLSSkipVerify {
-		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- option explicite d'administration
-		logger.Warn("TLS verification disabled (tlsSkipVerify=true)")
-	}
-	if s.TLSCACert != "" {
-		pool := x509.NewCertPool()
-		if pool.AppendCertsFromPEM([]byte(s.TLSCACert)) {
-			tlsCfg.RootCAs = pool
-		} else {
-			logger.Error("tlsCACert provided but not parseable, ignoring")
+const (
+	// maxRenderBytes bounds a rendered PNG when Grafana sets no response limit.
+	maxRenderBytes = 256 << 20
+	// maxErrorBody bounds what is kept of a failed Grafana response.
+	maxErrorBody = 512
+)
+
+// newHTTPClient builds the SDK client, which applies Grafana's configured
+// response limit and proxy settings. Timeouts and TLS are set here because the
+// SDK default of 30s is shorter than a render, and because it does not read
+// the CA certificate from jsonData, where this plugin keeps it.
+func newHTTPClient(ctx context.Context, s Settings, logger log.Logger) (*http.Client, error) {
+	var opts httpclient.Options
+	if app := httpadapter.PluginConfigFromContext(ctx).AppInstanceSettings; app != nil {
+		var err error
+		if opts, err = app.HTTPClientOptions(ctx); err != nil {
+			return nil, fmt.Errorf("http client options: %w", err)
 		}
 	}
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsCfg,
-			Proxy:           http.ProxyFromEnvironment,
-		},
-		Timeout: 90 * time.Second,
+	if s.TLSSkipVerify {
+		logger.Warn("TLS verification disabled (tlsSkipVerify=true)")
 	}
+	timeouts := httpclient.DefaultTimeoutOptions
+	timeouts.Timeout = s.RenderTimeout + 15*time.Second
+	opts.Timeouts = &timeouts
+	opts.TLS = &httpclient.TLSOptions{
+		CACertificate:      s.TLSCACert,
+		InsecureSkipVerify: s.TLSSkipVerify,
+		MinVersion:         tls.VersionTLS12,
+	}
+	return httpclient.New(opts)
+}
+
+// grafanaStatusError is a non-200 answer from Grafana.
+type grafanaStatusError struct {
+	Code int
+	Body string
+}
+
+func (e *grafanaStatusError) Error() string {
+	return fmt.Sprintf("grafana HTTP %d: %s", e.Code, e.Body)
+}
+
+func statusError(resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	return &grafanaStatusError{Code: resp.StatusCode, Body: string(body)}
+}
+
+// grafanaGet decodes a JSON answer from Grafana. An empty token sends the
+// request unauthenticated.
+func grafanaGet(ctx context.Context, client *http.Client, s Settings, path, token string, out any) error {
+	u := strings.TrimRight(s.GrafanaURL, "/") + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return statusError(resp)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
 }
 
 // DashboardMeta = title + aspect calculé à partir du layout des panels.
 // aspect = width / height en grid units (Grafana utilise 24 colonnes,
 // chaque "row unit" = 30px par défaut). aspect <= 0 si inconnu.
 type DashboardMeta struct {
-	Title  string
-	Aspect float64
+	Title     string
+	Aspect    float64
+	FolderUID string // vide pour un dashboard à la racine
 }
 
 // fetchDashboardMeta interroge Grafana pour récupérer titre + aspect.
@@ -58,22 +106,6 @@ type DashboardMeta struct {
 // panels, y compris ceux contenus dans des rows collapsées (panels[].panels[]).
 func fetchDashboardMeta(ctx context.Context, client *http.Client, s Settings, uid string) (DashboardMeta, error) {
 	meta := DashboardMeta{Title: uid}
-	if s.GrafanaSAToken == "" {
-		return meta, nil
-	}
-	u := fmt.Sprintf("%s/api/dashboards/uid/%s", strings.TrimRight(s.GrafanaURL, "/"), uid)
-	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
-	req.Header.Set("Authorization", "Bearer "+s.GrafanaSAToken)
-	req.Header.Set("Accept", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return meta, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return meta, fmt.Errorf("grafana HTTP %d: %s", resp.StatusCode, string(body)[:min(200, len(body))])
-	}
 	type panel struct {
 		GridPos struct {
 			X int `json:"x"`
@@ -88,10 +120,14 @@ func fetchDashboardMeta(ctx context.Context, client *http.Client, s Settings, ui
 			Title  string  `json:"title"`
 			Panels []panel `json:"panels"`
 		} `json:"dashboard"`
+		Meta struct {
+			FolderUID string `json:"folderUid"`
+		} `json:"meta"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := grafanaGet(ctx, client, s, "/api/dashboards/uid/"+url.PathEscape(uid), s.GrafanaSAToken, &payload); err != nil {
 		return meta, err
 	}
+	meta.FolderUID = payload.Meta.FolderUID
 	if payload.Dashboard.Title != "" {
 		meta.Title = payload.Dashboard.Title
 	}
@@ -179,10 +215,15 @@ func renderDashboardPNG(ctx context.Context, client *http.Client, s Settings, ui
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("grafana render HTTP %d: %s",
-			resp.StatusCode, string(body)[:min(200, len(body))])
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("grafana render: %w", statusError(resp))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRenderBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read render: %w", err)
+	}
+	if len(body) > maxRenderBytes {
+		return nil, errors.New("grafana render exceeds the maximum image size")
 	}
 	if len(body) < 8 || string(body[:4]) != "\x89PNG" {
 		return nil, fmt.Errorf("grafana render returned non-PNG (first 30 bytes: %q)",

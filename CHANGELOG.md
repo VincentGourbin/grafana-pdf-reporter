@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.0] - 2026-11-11
+
+### Security
+
+- Exports now check that the caller can read every requested dashboard, using
+  the signed identity token Grafana forwards to the plugin backend. Previously,
+  any caller at or above `minRole` could export any dashboard by UID. A refused
+  dashboard fails the whole export with HTTP 403, before anything is rendered.
+- Callers without a signed identity, such as anonymous users, can no longer
+  export.
+- Service-account callers are checked against their own permissions too.
+
+### Changed
+
+- **Breaking:** the plugin account must now hold `users.permissions:read`. Enable
+  the `externalServiceAccounts` feature toggle with
+  `managed_service_accounts_enabled`, or use an Org Admin token as
+  `grafanaSAToken`. Exports return HTTP 502 until this is done.
+- **Breaking:** the minimum supported Grafana version is now 12.4.2, the oldest
+  tested version.
+- Backend requests use the SDK HTTP client, so Grafana's configured response
+  limit applies. Rendered images are also capped at 256 MiB.
+- Rendered images above 64 million pixels are refused before they are decoded.
+- An unparseable `tlsCACert` now fails the export instead of being ignored.
+- `renderTimeoutSec` values above 75 seconds now take effect; the HTTP client
+  previously stopped at 90 seconds.
+- Manual build and installation steps moved from the README to `CONTRIBUTING.md`.
+- Updated Go to 1.26.11, the Grafana plugin SDK to 0.298.0, and the dependencies
+  reported by `govulncheck` and `osv-scanner`.
+
 ## [0.2.3] - 2026-09-02
 
 ### Fixed
