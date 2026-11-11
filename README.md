@@ -86,7 +86,8 @@ permissions. Choose one of the following:
   default on Grafana OSS, so a Viewer or Editor token is not enough. Treat this
   token as an administrator credential.
 
-If both are available, the managed account is used.
+If both are available, `grafanaSAToken` is used: the managed account exists in
+one organization only, so other organizations need their own token.
 
 | Field | Storage | Description |
 |---|---|---|
@@ -135,7 +136,9 @@ Grafana deployment. Never commit the service-account token.
 - Callers without a signed identity, such as anonymous users, cannot export.
 - `minRole` is an additional gate: callers below it are refused first.
 - The plugin account performs the render, so the PDF shows what that account
-  sees once the caller's access is confirmed. Prefer the
+  sees once the caller's access is confirmed. Data-source permissions narrower
+  than dashboard access, available on Grafana Enterprise, are not applied to the
+  PDF. Prefer the
   [managed account](#plugin-account), which holds fewer permissions than an Org
   Admin token.
 - TLS verification is strict by default. Use `tlsCACert` for enterprise CAs;

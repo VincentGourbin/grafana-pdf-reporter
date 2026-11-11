@@ -61,6 +61,7 @@ type fakeGrafana struct {
 	permStatus int
 	dashboards map[string]string
 	folders    map[string][]string
+	folderHits int
 }
 
 func (f *fakeGrafana) start(t *testing.T) Settings {
@@ -93,6 +94,7 @@ func (f *fakeGrafana) start(t *testing.T) Settings {
 		})
 	})
 	mux.HandleFunc("/api/folders/", func(w http.ResponseWriter, r *http.Request) {
+		f.folderHits++
 		var parents []map[string]string
 		for _, uid := range f.folders[strings.TrimPrefix(r.URL.Path, "/api/folders/")] {
 			parents = append(parents, map[string]string{"uid": uid})
@@ -120,16 +122,23 @@ func TestVerifyIDToken(t *testing.T) {
 	otherUser.Username = "admin"
 	anonymous := validClaims()
 	anonymous.Subject = "anonymous:0"
+	noExpiry := validClaims()
+	noExpiry.Expiry = nil
 
 	tests := []struct {
 		name   string
 		raw    string
+		login  string
 		want   string
 		denied bool
 	}{
 		{name: "user", raw: sign(t, key, jose.ES256, validClaims()), want: "user:12"},
 		{name: "service account", raw: sign(t, key, jose.ES256, service), want: "service-account:4"},
 		{name: "missing token", raw: "", denied: true},
+		{name: "no expiry", raw: sign(t, key, jose.ES256, noExpiry), denied: true},
+		{name: "service-account token replayed by a user", raw: sign(t, key, jose.ES256, service), login: "viewer", denied: true},
+		{name: "service-account token replayed anonymously", raw: sign(t, key, jose.ES256, service), login: "-", denied: true},
+		{name: "service account of another org", raw: sign(t, key, jose.ES256, service), login: "sa-2-reporter", denied: true},
 		{name: "garbage", raw: "not-a-token", denied: true},
 		{name: "forged with another key", raw: sign(t, newKey(t), jose.ES256, validClaims()), denied: true},
 		{name: "symmetric algorithm", raw: sign(t, []byte(strings.Repeat("k", 32)), jose.HS256, validClaims()), denied: true},
@@ -144,7 +153,17 @@ func TestVerifyIDToken(t *testing.T) {
 			if tt.want == "service-account:4" {
 				login = "sa-1-reporter"
 			}
+			switch tt.login {
+			case "":
+			case "-":
+				login = ""
+			default:
+				login = tt.login
+			}
 			got, err := verifyIDToken(context.Background(), http.DefaultClient, s, tt.raw, login, 1)
+			if tt.raw == "" && !errors.Is(err, errNoIdentity) {
+				t.Fatalf("a missing token must be reported as such, got %v", err)
+			}
 			if tt.denied {
 				if !errors.Is(err, errAccessDenied) {
 					t.Fatalf("want access denied, got %q, %v", got, err)
@@ -232,5 +251,29 @@ func TestAuthorizeExport(t *testing.T) {
 				t.Fatal("a refusal must not return dashboards")
 			}
 		})
+	}
+}
+
+func TestAuthorizeExportLooksUpEachFolderOnce(t *testing.T) {
+	f := &fakeGrafana{
+		key:        newKey(t),
+		scopes:     []string{"folders:uid:parent"},
+		dashboards: map[string]string{"a": "child", "b": "child", "c": "child"},
+		folders:    map[string][]string{"child": {"parent"}},
+	}
+	s := f.start(t)
+	if _, err := authorizeExport(context.Background(), http.DefaultClient, s, "user:12", []string{"a", "b", "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.folderHits != 1 {
+		t.Fatalf("%d folder lookups, want 1", f.folderHits)
+	}
+
+	f.scopes, f.folderHits = []string{"dashboards:*"}, 0
+	if _, err := authorizeExport(context.Background(), http.DefaultClient, s, "user:12", []string{"a", "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.folderHits != 0 {
+		t.Fatalf("%d folder lookups for a wildcard grant, want 0", f.folderHits)
 	}
 }

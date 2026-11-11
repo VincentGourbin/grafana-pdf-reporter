@@ -12,6 +12,7 @@ All notable changes to this project are documented here.
   dashboard fails the whole export with HTTP 403, before anything is rendered.
 - Callers without a signed identity, such as anonymous users, can no longer
   export.
+- Service-account callers are checked against their own permissions too.
 
 ### Changed
 

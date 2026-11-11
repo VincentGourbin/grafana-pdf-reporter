@@ -21,6 +21,10 @@ const identityHeader = "X-Grafana-Id"
 // caller cannot use the export endpoints to probe which UIDs exist.
 var errAccessDenied = errors.New("access denied")
 
+// errNoIdentity means Grafana sent no identity for the caller, which points at
+// the Grafana setup rather than at dashboard permissions.
+var errNoIdentity = fmt.Errorf("%w: Grafana forwarded no identity token", errAccessDenied)
+
 type idClaims struct {
 	jwt.Claims
 	Username string `json:"username"`
@@ -32,7 +36,7 @@ type idClaims struct {
 // makes the value trustworthy, never its presence.
 func verifyIDToken(ctx context.Context, client *http.Client, s Settings, raw, login string, orgID int64) (string, error) {
 	if raw == "" {
-		return "", fmt.Errorf("%w: no identity token", errAccessDenied)
+		return "", errNoIdentity
 	}
 	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
 	if err != nil || len(parsed.Headers) == 0 {
@@ -56,6 +60,9 @@ func verifyIDToken(ctx context.Context, client *http.Client, s Settings, raw, lo
 		AnyAudience: jwt.Audience{fmt.Sprintf("org:%d", orgID)},
 		Time:        time.Now(),
 	}
+	if claims.Expiry == nil {
+		return "", fmt.Errorf("%w: identity token has no expiry", errAccessDenied)
+	}
 	if err := claims.Validate(expected); err != nil {
 		return "", fmt.Errorf("%w: identity token rejected: %s", errAccessDenied, err.Error())
 	}
@@ -66,6 +73,11 @@ func verifyIDToken(ctx context.Context, client *http.Client, s Settings, raw, lo
 			return "", fmt.Errorf("%w: identity token does not match the caller", errAccessDenied)
 		}
 	case strings.HasPrefix(claims.Subject, "service-account:"):
+		// Grafana puts no login in a service account's token, so bind it to the
+		// caller through the login format Grafana gives every service account.
+		if !strings.HasPrefix(login, fmt.Sprintf("sa-%d-", orgID)) {
+			return "", fmt.Errorf("%w: identity token does not match the caller", errAccessDenied)
+		}
 	default:
 		return "", fmt.Errorf("%w: unsupported identity %q", errAccessDenied, claims.Subject)
 	}
@@ -141,6 +153,7 @@ func authorizeExport(ctx context.Context, client *http.Client, s Settings, subje
 		return nil, err
 	}
 	metas := make(map[string]DashboardMeta, len(uids))
+	chains := map[string][]string{}
 	for _, uid := range uids {
 		meta, err := fetchDashboardMeta(ctx, client, s, uid)
 		var status *grafanaStatusError
@@ -150,9 +163,17 @@ func authorizeExport(ctx context.Context, client *http.Client, s Settings, subje
 		if err != nil {
 			return nil, fmt.Errorf("grafana meta %s: %w", uid, err)
 		}
-		folders, err := folderChain(ctx, client, s, meta.FolderUID)
-		if err != nil {
-			return nil, err
+		// A wildcard or a grant on the dashboard itself needs no folder lookup.
+		if scopesAllow(scopes, uid, nil) {
+			metas[uid] = meta
+			continue
+		}
+		folders, seen := chains[meta.FolderUID]
+		if !seen {
+			if folders, err = folderChain(ctx, client, s, meta.FolderUID); err != nil {
+				return nil, err
+			}
+			chains[meta.FolderUID] = folders
 		}
 		if !scopesAllow(scopes, uid, folders) {
 			return nil, fmt.Errorf("%w: dashboard %s", errAccessDenied, uid)

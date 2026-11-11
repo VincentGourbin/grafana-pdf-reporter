@@ -15,7 +15,7 @@ import (
 // les autres dans jsonData.
 type Settings struct {
 	GrafanaURL     string
-	GrafanaSAToken string // compte géré par Grafana, sinon secureJsonData
+	GrafanaSAToken string // secureJsonData, sinon compte géré par Grafana
 	MinRole        string // rôle Grafana minimal autorisé à exporter
 	TLSSkipVerify  bool   // uniquement pour les certificats self-signed explicitement assumés
 	TLSCACert      string // certificat(s) CA PEM non secret
@@ -147,10 +147,12 @@ func settingsFromContext(ctx context.Context) (Settings, error) {
 		return s, err
 	}
 	// With externalServiceAccounts enabled, Grafana provisions the permissions
-	// declared under iam in plugin.json. That account is narrower than the Org
-	// Admin token this plugin otherwise needs, so it takes precedence.
-	if managed, err := backend.GrafanaConfigFromContext(ctx).PluginAppClientSecret(); err == nil && managed != "" {
-		s.GrafanaSAToken = managed
+	// declared under iam in plugin.json. A token set by the org's admin wins:
+	// the managed account exists in a single organization only.
+	if s.GrafanaSAToken == "" {
+		if managed, err := backend.GrafanaConfigFromContext(ctx).PluginAppClientSecret(); err == nil {
+			s.GrafanaSAToken = managed
+		}
 	}
 	return s, nil
 }

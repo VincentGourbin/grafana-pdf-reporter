@@ -17,7 +17,11 @@ echo "[bootstrap] reading current plugin jsonData..."
 JSON_DATA=$(api "$GRAFANA_URL/api/plugins/$PLUGIN_ID/settings" | jq -c '.jsonData // {}')
 
 SECURE_JSON_DATA="{}"
-if [ -z "${PDF_REPORTER_FEATURES:-}" ]; then
+case ",${PDF_REPORTER_FEATURES:-}," in
+  *,externalServiceAccounts,*) MANAGED=1 ;;
+  *) MANAGED= ;;
+esac
+if [ -z "$MANAGED" ]; then
   # Without externalServiceAccounts nothing provisions the plugin's account, and
   # only an Org Admin holds users.permissions:read.
   echo "[bootstrap] creating an Org Admin service account..."
@@ -34,12 +38,13 @@ api -X POST \
   "$GRAFANA_URL/api/plugins/$PLUGIN_ID/settings" > /dev/null
 
 echo "[bootstrap] creating the viewer user and a restricted folder..."
+# Tolerate a restart that kept the data: these may already exist.
 api -X POST -d '{"name":"Viewer","login":"viewer","email":"viewer@example.com","password":"viewer-password"}' \
-  "$GRAFANA_URL/api/admin/users" > /dev/null
+  "$GRAFANA_URL/api/admin/users" > /dev/null || echo "[bootstrap] viewer already exists"
 api -X POST -d "{\"title\":\"PDF Reporter Restricted\",\"uid\":\"$FOLDER_UID\"}" \
-  "$GRAFANA_URL/api/folders" > /dev/null
+  "$GRAFANA_URL/api/folders" > /dev/null || echo "[bootstrap] folder already exists"
 api -X POST \
-  -d "{\"dashboard\":{\"uid\":\"pdf-reporter-restricted-dash\",\"title\":\"Restricted dashboard\",\"panels\":[]},\"folderUid\":\"$FOLDER_UID\"}" \
+  -d "{\"dashboard\":{\"uid\":\"pdf-reporter-restricted-dash\",\"title\":\"Restricted dashboard\",\"panels\":[]},\"folderUid\":\"$FOLDER_UID\",\"overwrite\":true}" \
   "$GRAFANA_URL/api/dashboards/db" > /dev/null
 api -X POST -d '{"items":[]}' "$GRAFANA_URL/api/folders/$FOLDER_UID/permissions" > /dev/null
 

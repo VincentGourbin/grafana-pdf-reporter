@@ -150,7 +150,7 @@ func (a *App) generateAndWrite(rw http.ResponseWriter, req *http.Request, p repo
 		return
 	}
 	if settings.GrafanaSAToken == "" {
-		http.Error(rw, "plugin not configured: set grafanaSAToken (secureJsonData)", http.StatusServiceUnavailable)
+		http.Error(rw, "plugin not configured: enable the managed service account or set grafanaSAToken (see the README, Plugin account)", http.StatusServiceUnavailable)
 		return
 	}
 	user, role := callerFromContext(req)
@@ -165,6 +165,11 @@ func (a *App) generateAndWrite(rw http.ResponseWriter, req *http.Request, p repo
 		return
 	}
 	metas, err := a.authorize(req, client, settings, user, p.UIDs)
+	if errors.Is(err, errNoIdentity) {
+		a.logger.Warn("export denied: no identity token from Grafana", "user", user)
+		http.Error(rw, "access denied: Grafana forwarded no identity for this request; sign in, or ask an administrator to check the Grafana setup", http.StatusForbidden)
+		return
+	}
 	if errors.Is(err, errAccessDenied) {
 		a.logger.Warn("export denied", "user", user, "reason", err.Error())
 		http.Error(rw, "access denied: you cannot read one of the requested dashboards", http.StatusForbidden)
